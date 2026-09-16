@@ -1,0 +1,10 @@
+{
+  "status": "structural-checks-passed",
+  "swiftSourceFiles": 17,
+  "projectObjects": 75,
+  "seedExercises": 104,
+  "xcodeBuildRun": false,
+  "swiftTypeCheckingRun": false,
+  "xctestRun": false,
+  "ipaGenerated": false
+}

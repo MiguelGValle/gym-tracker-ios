@@ -1,0 +1,7 @@
+{
+  "parser": "tree-sitter-swift",
+  "swiftFiles": 17,
+  "errors": [],
+  "typeChecked": false,
+  "xcodeCompiled": false
+}

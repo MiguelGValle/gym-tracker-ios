@@ -1,0 +1,8 @@
+ios/build/
+**/xcuserdata/
+**/__pycache__/
+*.ipa
+*.p12
+*.p8
+*.mobileprovision
+outputs/

@@ -1,0 +1,40 @@
+name: Build iPhone app
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['ios/**', '.github/workflows/ios.yml']
+  pull_request:
+    paths: ['ios/**', '.github/workflows/ios.yml']
+permissions:
+  contents: read
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show compiler
+        run: xcodebuild -version
+      - name: Test on iPhone simulator
+        run: bash ios/tools/test_ios.sh
+      - name: Build unsigned IPA for personal signing
+        run: bash ios/tools/build_unsigned.sh
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: GymTracker-iPhone-unsigned
+          path: |
+            ios/build/GymTracker-unsigned.ipa
+            ios/build/GymTracker-unsigned.ipa.sha256
+          if-no-files-found: error
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: iPhone-test-results
+          path: ios/build/*.xcresult
+          if-no-files-found: ignore
