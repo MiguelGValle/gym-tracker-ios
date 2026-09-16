@@ -11,7 +11,11 @@ xcodebuild -project GymTracker.xcodeproj -scheme GymTracker -configuration Relea
   CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO archive
 APP="$BUILD_DIR/GymTracker.xcarchive/Products/Applications/GymTracker.app"
 test -f "$APP/GymTracker"
-xcrun lipo -verify_arch arm64 "$APP/GymTracker"
+ARCHS="$(xcrun lipo -archs "$APP/GymTracker")"
+case " $ARCHS " in
+  *" arm64 "*) ;;
+  *) echo "Device binary does not contain arm64 (found: $ARCHS)." >&2; exit 1 ;;
+esac
 PACKAGE_DIR="$(mktemp -d "$BUILD_DIR/package.XXXXXX")"
 mkdir "$PACKAGE_DIR/Payload"
 ditto "$APP" "$PACKAGE_DIR/Payload/GymTracker.app"
@@ -28,3 +32,4 @@ print('IPA checked: device binary; not signed. Sign with your own Apple account 
 PY
 shasum -a 256 "$BUILD_DIR/GymTracker-unsigned.ipa" > "$BUILD_DIR/GymTracker-unsigned.ipa.sha256"
 printf 'Output: %s\n' "$BUILD_DIR/GymTracker-unsigned.ipa"
+
