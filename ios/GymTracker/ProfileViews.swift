@@ -178,49 +178,82 @@ struct PhotosView: View {
     @State private var notes = ""
     @State private var deleting: ProgressPhoto?
     @State private var loading = false
+
+    private var sortedPhotos: [ProgressPhoto] {
+        store.data.photos.sorted { $0.date > $1.date }
+    }
+
     var body: some View {
         List {
-            Section("Añadir foto") {
-                DatePicker("Fecha", selection: $date, displayedComponents: .date)
-                TextField("Notas", text: $notes)
-                PhotosPicker(selection: $selected, matching: .images) { Label(loading ? "Guardando…" : "Seleccionar foto", systemImage: "photo.badge.plus") }.disabled(loading)
-            }
-            ForEach(store.data.photos.sorted { $0.date > $1.date }) { photo in
-                VStack(alignment: .leading, spacing: 10) {
-                    if let image = UIImage(data: photo.imageData) {
-                        Image(uiImage: image).resizable().scaledToFit().frame(maxHeight: 360).clipShape(RoundedRectangle(cornerRadius: 12))
-                    }
-                    Text(photo.date.formatted(date: .abbreviated, time: .omitted)).font(.headline)
-                    if !photo.notes.isEmpty { Text(photo.notes).foregroundStyle(.secondary) }
-                    Button("Eliminar foto", role: .destructive) { deleting = photo }
-                }.padding(.vertical, 8)
-            }
+            addPhotoSection
+            ForEach(sortedPhotos, content: photoRow)
         }
         .navigationTitle("Fotos de progreso")
-        .onChange(of: selected) { item in
-            guard let item else { return }
-            let selectedDate = date
-            let selectedNotes = notes
-            loading = true
-            Task { @MainActor in
-                defer { loading = false; selected = nil }
-                do {
-                    guard let raw = try await item.loadTransferable(type: Data.self), let image = UIImage(data: raw), let jpeg = resizedPhoto(image) else {
-                        throw GymError.invalid("No se pudo leer la foto seleccionada.")
-                    }
-                    guard store.data.photos.reduce(0, { $0 + $1.imageData.count }) + jpeg.count <= 20 * 1024 * 1024 else {
-                        throw GymError.invalid("Las fotos alcanzan el límite de 20 MB de la copia local. Elimina alguna para añadir más.")
-                    }
-                    let photo = ProgressPhoto(date: selectedDate, imageData: jpeg, notes: selectedNotes)
-                    store.mutate { $0.photos.append(photo) }
-                    if store.errorMessage == nil && notes == selectedNotes { notes = "" }
-                } catch { store.errorMessage = error.localizedDescription }
-            }
-        }
+        .onChange(of: selected) { handleSelection($0) }
         .confirmationDialog("¿Eliminar esta foto?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
-            Button("Eliminar foto", role: .destructive) { if let id = deleting?.id { store.mutate { $0.photos.removeAll { $0.id == id } } }; deleting = nil }
+            Button("Eliminar foto", role: .destructive) { deleteSelectedPhoto() }
         }
     }
+
+    private var addPhotoSection: some View {
+        Section("Añadir foto") {
+            DatePicker("Fecha", selection: $date, displayedComponents: .date)
+            TextField("Notas", text: $notes)
+            PhotosPicker(selection: $selected, matching: .images) {
+                Label(loading ? "Guardando…" : "Seleccionar foto", systemImage: "photo.badge.plus")
+            }
+            .disabled(loading)
+        }
+    }
+
+    @ViewBuilder
+    private func photoRow(_ photo: ProgressPhoto) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let image = UIImage(data: photo.imageData) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxHeight: 360)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
+            Text(photo.date.formatted(date: .abbreviated, time: .omitted))
+                .font(.headline)
+            if !photo.notes.isEmpty {
+                Text(photo.notes).foregroundStyle(.secondary)
+            }
+            Button("Eliminar foto", role: .destructive) { deleting = photo }
+        }
+        .padding(.vertical, 8)
+    }
+
+    private func handleSelection(_ item: PhotosPickerItem?) {
+        guard let item else { return }
+        let selectedDate = date
+        let selectedNotes = notes
+        loading = true
+        Task { @MainActor in
+            defer { loading = false; selected = nil }
+            do {
+                guard let raw = try await item.loadTransferable(type: Data.self), let image = UIImage(data: raw), let jpeg = resizedPhoto(image) else {
+                    throw GymError.invalid("No se pudo leer la foto seleccionada.")
+                }
+                guard store.data.photos.reduce(0, { $0 + $1.imageData.count }) + jpeg.count <= 20 * 1024 * 1024 else {
+                    throw GymError.invalid("Las fotos alcanzan el límite de 20 MB de la copia local. Elimina alguna para añadir más.")
+                }
+                let photo = ProgressPhoto(date: selectedDate, imageData: jpeg, notes: selectedNotes)
+                store.mutate { $0.photos.append(photo) }
+                if store.errorMessage == nil && notes == selectedNotes { notes = "" }
+            } catch { store.errorMessage = error.localizedDescription }
+        }
+    }
+
+    private func deleteSelectedPhoto() {
+        if let id = deleting?.id {
+            store.mutate { $0.photos.removeAll { $0.id == id } }
+        }
+        deleting = nil
+    }
+
     private func resizedPhoto(_ image: UIImage) -> Data? {
         let ratio = min(1, 1600 / max(image.size.width, image.size.height))
         let size = CGSize(width: image.size.width * ratio, height: image.size.height * ratio)
@@ -266,3 +299,4 @@ struct PlateCalculatorView: View {
             .onAppear { target = store.displayWeight(60); bar = store.displayWeight(20) }
     }
 }
+
