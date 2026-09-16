@@ -10,7 +10,8 @@ final class SmokeTests: XCTestCase {
             let tab = app.tabBars.buttons[title]
             XCTAssertTrue(tab.exists, "Missing tab: \(title)")
             tab.tap()
-            XCTAssertTrue(app.tabBars.exists)
+            XCTAssertTrue(app.tabBars.firstMatch.exists)
         }
     }
 }
+
