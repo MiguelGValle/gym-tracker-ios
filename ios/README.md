@@ -4,7 +4,7 @@ Aplicación nativa **SwiftUI para iOS 16 o posterior**, con datos locales. La ve
 
 ## Estado de la entrega
 
-Se ha preparado el código iOS, el proyecto Xcode y un flujo para comprobarlo y generar un IPA en un Mac de GitHub Actions. **Todavía no se ha ejecutado Xcode ni el simulador desde este equipo Windows. No hay un IPA compilado o firmado en esta entrega.** Las pruebas XCTest incluidas están pendientes de ejecución en macOS. Una revisión estática del proyecto no sustituye esa compilación.
+El código iOS, el proyecto Xcode y el flujo de GitHub Actions están publicados en [MiguelGValle/gym-tracker-ios](https://github.com/MiguelGValle/gym-tracker-ios). La ejecución [35141263928](https://github.com/MiguelGValle/gym-tracker-ios/actions/runs/35141263928) en macOS 15.7.9 con Xcode 16.4 pasó las pruebas del simulador (35 tests, 0 fallos), archivó la app para iPhone ARM64 y generó el artefacto **GymTracker-iPhone-unsigned**. El archivo está sin firmar y debe pasar por AltStore antes de instalarlo.
 
 ## Funciones implementadas en el código
 
@@ -20,10 +20,9 @@ Las particularidades que necesitan validación adicional están en `VALIDACION.m
 
 ## Obtener el IPA desde Windows
 
-1. Alojar el código de `ios/` y `.github/workflows/ios.yml` en un repositorio privado de GitHub.
-2. En **Actions → Build iPhone app → Run workflow**, ejecutar el flujo. La compilación usa un runner macOS, primero ejecuta tests en el simulador y después construye para iPhone ARM64.
-3. Si termina correctamente, descargar el artefacto **GymTracker-iPhone-unsigned** y extraer `GymTracker-unsigned.ipa`.
-4. El archivo contiene una app nativa real, pero **necesita firma antes de instalarse**. El nombre `unsigned` identifica ese estado. No basta con abrirlo en Archivos.
+1. Abrir la ejecución [35141263928](https://github.com/MiguelGValle/gym-tracker-ios/actions/runs/35141263928) e iniciar sesión en GitHub si lo solicita.
+2. Descargar el artefacto **GymTracker-iPhone-unsigned** y extraer `GymTracker-unsigned.ipa`.
+3. El archivo contiene una app nativa real, pero **necesita firma antes de instalarse**. El nombre `unsigned` identifica ese estado. No basta con abrirlo en Archivos.
 
 No hacen falta certificados ni claves de Apple para generar ese IPA sin firmar. GitHub Actions en repositorios privados consume la cuota de la cuenta; revisar la cuota antes de ejecutar. No se configura ningún gasto adicional ni compra en el proyecto.
 
@@ -57,3 +56,4 @@ Para instalación directa con Xcode: seleccionar el equipo personal en **Signing
 El código no incorpora analítica ni sincronización remota. Los datos se escriben en Application Support con reemplazo atómico y una copia anterior. Las fotos seleccionadas se copian en formato JPEG dentro del almacenamiento y de los backups, con un límite total de 20 MB. Las copias exportadas contienen datos y fotos personales; guárdalas donde decidas.
 
 La copia nativa iOS usa un formato distinto al de Android. iOS puede leer el formato Android existente; **no se garantiza restaurar una copia iOS en la app Android actual**. Las fechas Android sin zona se interpretan en la zona del iPhone. El CSV de Gym Tracker es para portabilidad, no se anuncia como formato admitido por Hevy para volver a importar.
+

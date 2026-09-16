@@ -12,13 +12,12 @@ La comprobación estructural se ejecuta con `python tools/validate_project.py`. 
 
 El análisis sintáctico se reproduce instalando `tree-sitter==0.26.0` y `tree-sitter-swift==0.7.3` y ejecutando `python tools/check_swift_syntax.py`. Estas herramientas son solo de desarrollo; no son dependencias de la app.
 
-## Preparado, pendiente de macOS
+## Validación ejecutada en macOS
 
-- Tests XCTest de persistencia, backups, CSV, cálculos y fechas.
+- Tests XCTest de persistencia, backups, CSV, cálculos, fechas y navegación UI: 35 tests, 0 fallos.
 - Las medidas y la nutrición guardan días civiles estables al cambiar de zona horaria. Los tests de esa migración se ejecutan sin paralelismo para aislar el cambio temporal de zona.
-- Prueba UI de navegación por los cinco destinos principales.
-- Compilación de simulador y archivo de dispositivo ARM64 antes de empaquetar el IPA.
-- Registro `.xcresult` y SHA256 del IPA como artefactos de GitHub Actions.
+- Compilación de simulador y archivo de dispositivo ARM64 completados antes de empaquetar el IPA.
+- Registro `.xcresult`, IPA y SHA256 incluidos en los artefactos de GitHub Actions.
 
 ## Pendiente de prueba en iPhone
 
@@ -35,3 +34,4 @@ El análisis sintáctico se reproduce instalando `tree-sitter==0.26.0` y `tree-s
 - Sin importación/exportación independiente de medidas corporales CSV; las medidas viajan en JSON.
 - No hay una equivalencia visual exacta: usa navegación, formularios, selectores y gráficas nativos de iOS.
 - No se ha validado la paridad completa ni el rendimiento de historiales grandes en dispositivo.
+
