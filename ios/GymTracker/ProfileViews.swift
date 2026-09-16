@@ -233,18 +233,33 @@ struct PhotosView: View {
         loading = true
         Task { @MainActor in
             defer { loading = false; selected = nil }
-            do {
-                guard let raw = try await item.loadTransferable(type: Data.self), let image = UIImage(data: raw), let jpeg = resizedPhoto(image) else {
-                    throw GymError.invalid("No se pudo leer la foto seleccionada.")
-                }
-                guard store.data.photos.reduce(0, { $0 + $1.imageData.count }) + jpeg.count <= 20 * 1024 * 1024 else {
-                    throw GymError.invalid("Las fotos alcanzan el límite de 20 MB de la copia local. Elimina alguna para añadir más.")
-                }
-                let photo = ProgressPhoto(date: selectedDate, imageData: jpeg, notes: selectedNotes)
-                store.mutate { $0.photos.append(photo) }
-                if store.errorMessage == nil && notes == selectedNotes { notes = "" }
-            } catch { store.errorMessage = error.localizedDescription }
+            await importPhoto(item, date: selectedDate, notes: selectedNotes)
         }
+    }
+
+    @MainActor
+    private func importPhoto(_ item: PhotosPickerItem, date: Date, notes: String) async {
+        do {
+            let jpeg = try await jpegData(from: item)
+            let currentBytes = store.data.photos.reduce(0) { $0 + $1.imageData.count }
+            guard currentBytes + jpeg.count <= 20 * 1024 * 1024 else {
+                throw GymError.invalid("Las fotos alcanzan el límite de 20 MB de la copia local. Elimina alguna para añadir más.")
+            }
+            let photo = ProgressPhoto(date: date, imageData: jpeg, notes: notes)
+            store.mutate { $0.photos.append(photo) }
+            if store.errorMessage == nil && self.notes == notes { self.notes = "" }
+        } catch {
+            store.errorMessage = error.localizedDescription
+        }
+    }
+
+    private func jpegData(from item: PhotosPickerItem) async throws -> Data {
+        guard let raw = try await item.loadTransferable(type: Data.self),
+              let image = UIImage(data: raw),
+              let jpeg = resizedPhoto(image) else {
+            throw GymError.invalid("No se pudo leer la foto seleccionada.")
+        }
+        return jpeg
     }
 
     private func deleteSelectedPhoto() {
