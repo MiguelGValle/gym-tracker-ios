@@ -293,7 +293,7 @@ final class GymStoreTests: XCTestCase {
         let store = GymStore(directory: try temporaryDirectory())
         let date = try XCTUnwrap(GymDate.localDate(fromCivilDay: "2026-10-06"))
         let sessions = (0..<2).map { _ in
-            WorkoutSession(title: "Sesión", startedAt: Calendar.current.startOfDay(for: date), workoutDate: "2026-10-06",
+            WorkoutSession(importKey: "import-session-\(UUID().uuidString)", title: "Sesión", startedAt: Calendar.current.startOfDay(for: date), workoutDate: "2026-10-06",
                 exercises: [WorkoutExercise(exerciseId: store.data.exercises[0].id, exerciseName: store.data.exercises[0].name,
                     sets: [WorkoutSet(reps: 8, weightKg: 50, completed: true), WorkoutSet(reps: 8, weightKg: 50, completed: true)])])
         }
@@ -303,6 +303,7 @@ final class GymStoreTests: XCTestCase {
         try store.importHevy(preview)
         try store.importHevy(preview)
         XCTAssertEqual(store.data.sessions.count, 2)
+        XCTAssertEqual(store.data.sessions.map(\.importKey), sessions.map(\.importKey))
         XCTAssertEqual(store.data.sessions.flatMap(\.exercises).flatMap(\.sets).count, 4)
         XCTAssertEqual(store.data.sessions.flatMap(\.exercises).flatMap(\.sets).map(\.id), sessions.flatMap(\.exercises).flatMap(\.sets).map(\.id))
         let empty = GymStore(directory: try temporaryDirectory())

@@ -156,6 +156,8 @@ final class GymStore: ObservableObject {
             if existing.id == session.id && !preserveImportedSets { result[index] = session; continue }
             // Separate Android installations assign random UUIDs to the same imported Hevy rows.
             session.id = existing.id
+            session.importKey = existing.importKey ?? session.importKey
+            session.workoutDate = session.workoutDate ?? existing.workoutDate
             var blocks = existing.exercises
             var seenIDs = Set(existing.exercises.flatMap(\.sets).map(\.id))
             var seenKeys = Set(existing.exercises.flatMap(\.sets).compactMap(\.importKey))
