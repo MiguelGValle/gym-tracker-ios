@@ -73,7 +73,14 @@ enum HevyCSV {
                 guard let type = setType(value("set_type")) else { throw GymError.invalid("set_type desconocido: \(value("set_type"))") }
                 let title = value("title").isEmpty ? "Entrenamiento importado" : value("title")
                 let canonicalStart = canonicalLocalDate(start, source: value("start_time"))
-                let sessionKey = canonicalKey([title, canonicalStart], prefix: "session")
+                let sourceSessionID = value("session_id")
+                let sourceSetID = value("set_id")
+                let sourceBlockID = value("exercise_block_id")
+                let workoutDate = value("workout_date")
+                guard workoutDate.isEmpty || GymDate.localDate(fromCivilDay: workoutDate) != nil else {
+                    throw GymError.invalid("workout_date no es una fecha válida")
+                }
+                let sessionKey = sourceSessionID.isEmpty ? canonicalKey([title, canonicalStart], prefix: "session") : sourceSessionID
                 let superset = value("superset_id").isEmpty ? nil : value("superset_id")
                 let previous = states[sessionKey]
                 let blockIndex: Int
@@ -89,12 +96,12 @@ enum HevyCSV {
                     exercise = Exercise(id: canonicalKey([exactName(name)], prefix: "hevy-exercise"), name: name, equipment: "Importado", category: "Importado")
                     preview.exercises.append(exercise)
                 }
-                if !preview.sessions.contains(where: { $0.importKey == sessionKey }) {
-                    preview.sessions.append(WorkoutSession(id: sessionKey, importKey: sessionKey, title: title,
-                        startedAt: start, endedAt: end, notes: raw("description")))
+                if !preview.sessions.contains(where: { $0.id == sessionKey }) {
+                    preview.sessions.append(WorkoutSession(id: sessionKey, importKey: sourceSessionID.isEmpty ? sessionKey : nil, title: title,
+                        startedAt: start, endedAt: end, workoutDate: workoutDate.isEmpty ? nil : workoutDate, notes: raw("description")))
                 }
-                let sessionIndex = preview.sessions.firstIndex(where: { $0.importKey == sessionKey })!
-                let blockId = "\(sessionKey):\(blockIndex):\(exercise.id)"
+                let sessionIndex = preview.sessions.firstIndex(where: { $0.id == sessionKey })!
+                let blockId = sourceBlockID.isEmpty ? "\(sessionKey):\(blockIndex):\(exercise.id)" : sourceBlockID
                 if !preview.sessions[sessionIndex].exercises.contains(where: { $0.id == blockId }) {
                     preview.sessions[sessionIndex].exercises.append(WorkoutExercise(id: blockId, exerciseId: exercise.id, exerciseName: name,
                         notes: raw("exercise_notes"), supersetId: superset, sets: []))
@@ -102,11 +109,11 @@ enum HevyCSV {
                 let blockPosition = preview.sessions[sessionIndex].exercises.firstIndex(where: { $0.id == blockId })!
                 let setFields = [title, canonicalStart, name, String(blockIndex), String(setIndex), type, javaDouble(weight), String(reps),
                                  rpe.map(javaDouble) ?? "", distance.map(javaDouble) ?? "", seconds.map(String.init) ?? "", raw("exercise_notes"), superset ?? ""]
-                let baseKey = canonicalKey(setFields, prefix: "set")
+                let baseKey = canonicalKey((sourceSessionID.isEmpty ? [] : [sourceSessionID]) + setFields, prefix: "set")
                 let occurrence = occurrences[baseKey, default: 0]
                 occurrences[baseKey] = occurrence + 1
-                let key = "\(baseKey):\(occurrence)"
-                preview.sessions[sessionIndex].exercises[blockPosition].sets.append(WorkoutSet(id: key, importKey: key,
+                let key = sourceSetID.isEmpty ? "\(baseKey):\(occurrence)" : sourceSetID
+                preview.sessions[sessionIndex].exercises[blockPosition].sets.append(WorkoutSet(id: key, importKey: sourceSetID.isEmpty ? key : nil,
                     reps: reps, weightKg: weight, setType: type, rpe: rpe, distanceKm: distance, durationSeconds: seconds, completed: true))
             } catch {
                 preview.warnings.append("Fila \(row.line) omitida: \(error.localizedDescription).")
@@ -114,6 +121,28 @@ enum HevyCSV {
         }
         if records.count == 1 { preview.warnings.append("El archivo contiene una cabecera, pero ninguna serie.") }
         return preview
+    }
+
+    /// Preserve local identities and calendar dates when two sessions share a title/day.
+    /// Optional extra columns leave normal Hevy files and their identity hashes unchanged.
+    static func export(_ sessions: [WorkoutSession], catalog: [Exercise]) -> String {
+        func escape(_ value: String) -> String { "\"" + value.replacingOccurrences(of: "\"", with: "\"\"") + "\"" }
+        let iso = ISO8601DateFormatter()
+        var rows = ["title,start_time,end_time,description,exercise_title,exercise_notes,set_index,set_type,weight_kg,reps,rpe,distance_km,duration_seconds,superset_id,session_id,workout_date,set_id,exercise_block_id"]
+        for workout in sessions.sorted(by: { $0.date < $1.date }) {
+            for block in workout.exercises {
+                for (index, set) in block.sets.enumerated() where set.completed {
+                    let name = block.exerciseName.isEmpty ? catalog.first(where: { $0.id == block.exerciseId })?.name ?? "Ejercicio" : block.exerciseName
+                    let fields = [workout.title, iso.string(from: workout.startedAt), workout.endedAt.map { iso.string(from: $0) } ?? "", workout.notes,
+                                  name, block.notes, String(index), set.setType, String(set.weightKg), String(set.reps),
+                                  set.rpe.map { String($0) } ?? "", set.distanceKm.map { String($0) } ?? "",
+                                  set.durationSeconds.map { String($0) } ?? "", block.supersetId ?? "", workout.id,
+                                  GymDate.dayKey(workout.date), set.id, block.id]
+                    rows.append(fields.map(escape).joined(separator: ","))
+                }
+            }
+        }
+        return rows.joined(separator: "\r\n")
     }
 
     static func exactName(_ value: String) -> String {

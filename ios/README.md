@@ -1,6 +1,6 @@
 # Gym Tracker para iPhone
 
-Aplicación nativa **SwiftUI para iOS 16 o posterior**, con datos locales. La versión Android sigue en la carpeta `app/` y el APK existente no cambia.
+Aplicación nativa **SwiftUI para iOS 16 o posterior**, con datos locales. La versión Android está en la carpeta `app/`.
 
 ## Estado de la entrega
 
@@ -10,13 +10,23 @@ El código iOS, el proyecto Xcode y el flujo de GitHub Actions están publicados
 
 - Pantallas nativas de inicio, entrenamiento, historial, progreso y perfil; tema oscuro naranja.
 - Catálogo de 104 ejercicios y seis rutinas iniciales; edición, duplicación y archivado de ejercicios.
-- Rutinas editables y carpetas; sesión activa con recuperación del borrador, series, kg/lb, RPE, duración, distancia, superseries, notas y descanso con notificación local.
+- Rutinas editables y carpetas; sesión activa con recuperación del borrador, series, kg/lb, RPE, distancia, superseries y notas.
 - Historial con edición, repetición y conversión en rutina; estadísticas y gráficas por fecha y ejercicio.
 - Nutrición, perfil corporal, medidas y fotos privadas dentro de la app.
 - Copias JSON iOS, lectura de copias Android, importación CSV de Hevy y exportación de sesiones CSV.
 - Calculadora de discos y calentamiento.
 
 Las particularidades que necesitan validación adicional están en `VALIDACION.md`. No se anuncia paridad probada con todas las funciones Android: el widget Android no se ha trasladado a una extensión WidgetKit y no hay importación/exportación independiente de medidas en CSV.
+
+## Cambios del 6 de octubre de 2026
+
+- Los nuevos entrenamientos guardan su fecha, sin medir la duración ni guardar una hora de finalización. Se eliminan el cronómetro, los descansos, sus notificaciones y los campos de duración de las series en toda la interfaz y las estadísticas.
+- Al iniciar una rutina o repetir una sesión, cada ejercicio empieza con una sola serie. «Añadir serie» copia los valores de la última, con identidad nueva, sin marcarla completada ni arrastrar tiempos o claves de importación.
+- Al tocar peso o repeticiones se selecciona el número completo para sustituirlo escribiendo directamente, también al volver a tocar el mismo campo.
+- Los entrenamientos históricos, las rutinas existentes y los borradores recuperados conservan todas sus series y campos originales. Los tiempos antiguos siguen viajando en las copias JSON, los CSV y las importaciones para evitar pérdida de datos; ya no se muestran ni se editan en la app. Al arrancar se cancelan los avisos de descanso de versiones anteriores.
+- La fecha del entrenamiento se guarda por separado: cambiarla conserva exactamente los tiempos históricos. Los CSV propios incluyen IDs de sesión, ejercicio y serie y la fecha civil para que dos sesiones con el mismo título/día sigan siendo distintas y reimportarlos no duplique las series. Los CSV Hevy sin esas columnas mantienen su comportamiento e identidad originales.
+
+Estos cambios están aplicados al código local y verificados estructural y sintácticamente en Windows. Las pruebas XCTest nuevas y la compilación de esta revisión requieren macOS/Xcode; el IPA enlazado arriba corresponde a la revisión anterior.
 
 ## Obtener el IPA desde Windows
 
@@ -56,4 +66,3 @@ Para instalación directa con Xcode: seleccionar el equipo personal en **Signing
 El código no incorpora analítica ni sincronización remota. Los datos se escriben en Application Support con reemplazo atómico y una copia anterior. Las fotos seleccionadas se copian en formato JPEG dentro del almacenamiento y de los backups, con un límite total de 20 MB. Las copias exportadas contienen datos y fotos personales; guárdalas donde decidas.
 
 La copia nativa iOS usa un formato distinto al de Android. iOS puede leer el formato Android existente; **no se garantiza restaurar una copia iOS en la app Android actual**. Las fechas Android sin zona se interpretan en la zona del iPhone. El CSV de Gym Tracker es para portabilidad, no se anuncia como formato admitido por Hevy para volver a importar.
-

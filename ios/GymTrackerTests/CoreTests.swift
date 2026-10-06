@@ -2,6 +2,77 @@ import XCTest
 @testable import GymTracker
 
 final class CoreTests: XCTestCase {
+    func testAddedSetCopiesLatestValuesWithoutCompletionIdentityOrTime() {
+        var previous = WorkoutSet(reps: 7, weightKg: 62.5, setType: "dropset", rpe: 9, distanceKm: 2,
+                                  durationSeconds: 75, completed: true)
+        previous.importKey = "external-set"
+        let added = WorkoutTemplates.nextSet(from: previous)
+        XCTAssertEqual(added.reps, 7)
+        XCTAssertEqual(added.weightKg, 62.5)
+        XCTAssertEqual(added.setType, "dropset")
+        XCTAssertEqual(added.rpe, 9)
+        XCTAssertEqual(added.distanceKm, 2)
+        XCTAssertNotEqual(added.id, previous.id)
+        XCTAssertNil(added.importKey)
+        XCTAssertNil(added.durationSeconds)
+        XCTAssertFalse(added.completed)
+        XCTAssertEqual(previous.durationSeconds, 75)
+        XCTAssertTrue(previous.completed)
+    }
+
+    func testNewExerciseAndEmptyTemplateStartWithOneSet() {
+        let newExercise = WorkoutExercise(exerciseId: "press_banca_barra")
+        XCTAssertEqual(newExercise.sets.count, 1)
+        XCTAssertEqual(newExercise.restSeconds, 0)
+        XCTAssertNil(newExercise.sets[0].durationSeconds)
+        let empty = WorkoutExercise(exerciseId: "press_banca_barra", sets: [])
+        XCTAssertEqual(WorkoutTemplates.exercises(from: [empty], singleSet: true)[0].sets.count, 1)
+        XCTAssertTrue(ExerciseSeed.routines.flatMap(\.exercises).allSatisfy {
+            $0.sets.count == 1 && $0.restSeconds == 0 && $0.sets[0].durationSeconds == nil
+        })
+    }
+
+    func testFreshExercisesKeepSupersetGroupingWithNewIdentities() {
+        let sources = [WorkoutExercise(exerciseId: "press_banca_barra", supersetId: "previous-group"),
+                       WorkoutExercise(exerciseId: "remo_barra", supersetId: "previous-group")]
+        let fresh = WorkoutTemplates.exercises(from: sources, singleSet: true)
+        XCTAssertEqual(fresh.count, 2)
+        XCTAssertEqual(fresh[0].supersetId, fresh[1].supersetId)
+        XCTAssertNotEqual(fresh[0].supersetId, "previous-group")
+        XCTAssertNotEqual(fresh[0].id, sources[0].id)
+        XCTAssertNotEqual(fresh[1].id, sources[1].id)
+        XCTAssertNotEqual(fresh[0].sets[0].id, fresh[1].sets[0].id)
+    }
+
+    func testEditingWorkoutDateKeepsLegacyStartAndEndExactly() throws {
+        var session = WorkoutSession(startedAt: Date(timeIntervalSince1970: 1_800_000_000),
+                                     endedAt: Date(timeIntervalSince1970: 1_800_003_600))
+        let start = session.startedAt
+        let end = session.endedAt
+        session.date = try XCTUnwrap(GymDate.localDate(fromCivilDay: "2026-10-05"))
+        XCTAssertEqual(session.workoutDate, "2026-10-05")
+        XCTAssertEqual(GymDate.dayKey(session.date), "2026-10-05")
+        XCTAssertEqual(session.startedAt, start)
+        XCTAssertEqual(session.endedAt, end)
+    }
+
+    func testOwnCSVKeepsDistinctSessionsOnSameDayAndTheirCivilDates() throws {
+        let date = try XCTUnwrap(GymDate.localDate(fromCivilDay: "2026-10-06"))
+        let sessions = (0..<2).map { _ in
+            WorkoutSession(title: "Sesión", startedAt: Calendar.current.startOfDay(for: date), workoutDate: "2026-10-05",
+                exercises: [WorkoutExercise(exerciseId: ExerciseSeed.all[0].id, exerciseName: ExerciseSeed.all[0].name,
+                    sets: [WorkoutSet(reps: 8, weightKg: 50, completed: true), WorkoutSet(reps: 8, weightKg: 50, completed: true)])])
+        }
+        let preview = try HevyCSV.preview(HevyCSV.export(sessions, catalog: ExerciseSeed.all), catalog: ExerciseSeed.all)
+        XCTAssertTrue(preview.warnings.isEmpty)
+        XCTAssertEqual(preview.sessions.count, 2)
+        XCTAssertEqual(preview.sessions.map(\.id), sessions.map(\.id))
+        XCTAssertEqual(preview.sessions.map(\.workoutDate), ["2026-10-05", "2026-10-05"])
+        XCTAssertEqual(preview.sessions.flatMap(\.exercises).map(\.id), sessions.flatMap(\.exercises).map(\.id))
+        XCTAssertEqual(preview.sessions.flatMap(\.exercises).flatMap(\.sets).map(\.id), sessions.flatMap(\.exercises).flatMap(\.sets).map(\.id))
+        XCTAssertTrue(preview.sessions.allSatisfy { $0.endedAt == nil && $0.completedSets == 2 })
+    }
+
     func testCivilDatesKeepTheirDayWhenDeviceTimeZoneChanges() throws {
         let originalZone = NSTimeZone.default
         defer { NSTimeZone.default = originalZone }
@@ -127,13 +198,20 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(value.sessions[0].importKey, "session-key")
         XCTAssertEqual(value.sessions[0].exercises[0].sets[0].importKey, "set-key")
         XCTAssertEqual(value.sessions[0].exercises[0].sets[0].rpe, 8.5)
+        XCTAssertEqual(value.sessions[0].exercises[0].restSeconds, 100)
+        XCTAssertEqual(value.sessions[0].exercises[0].sets[0].durationSeconds, 75)
+        XCTAssertNotNil(value.sessions[0].endedAt)
         XCTAssertEqual(value.routines.count, 1)
         XCTAssertEqual(value.draft?.title, "Sesión activa")
         XCTAssertEqual(value.measurements[0].values["waistCm"], 80)
         XCTAssertEqual(value.photos[0].imageData, Data([1, 2, 3]))
         XCTAssertEqual(value.nutrition[0].protein, 140)
         XCTAssertEqual(value.profile.age, 35)
-        XCTAssertEqual(try BackupCodec.decode(BackupCodec.encode(value)).photos, value.photos)
+        let roundTrip = try BackupCodec.decode(BackupCodec.encode(value))
+        XCTAssertEqual(roundTrip.photos, value.photos)
+        XCTAssertEqual(roundTrip.sessions, value.sessions)
+        XCTAssertEqual(roundTrip.draft, value.draft)
+        XCTAssertEqual(roundTrip.routines, value.routines)
     }
 
     func testAndroidBackupMissingPhotoAndDanglingReferenceAreRejected() throws {
@@ -157,7 +235,7 @@ final class CoreTests: XCTestCase {
             "exercises": [["id": "press_banca_barra", "name": "Press banca barra", "equipment": "Barra", "category": "Pecho", "movement": "Empuje", "technogym": 0, "archived": 0, "notes": ""]],
             "exercise_muscles": [["exercise_id": "press_banca_barra", "muscle": "Pectoral esternal", "percentage": 100]],
             "workout_sessions": [["id": "android-session", "date_epoch_day": 20707, "title": "Historial", "started_at": "2026-09-10T10:00:00", "ended_at": "2026-09-10T11:00:00", "notes": "Nota", "import_key": "session-key"]],
-            "set_entries": [["id": "android-set", "session_id": "android-session", "exercise_id": "press_banca_barra", "exercise_block_id": "android-block", "exercise_index": 0, "set_number": 1, "reps": 10, "weight_kg": 50.0, "set_type": "normal", "rpe": 8.5, "exercise_notes": "Ejercicio", "rest_seconds": 100, "import_key": "set-key"]],
+            "set_entries": [["id": "android-set", "session_id": "android-session", "exercise_id": "press_banca_barra", "exercise_block_id": "android-block", "exercise_index": 0, "set_number": 1, "reps": 10, "weight_kg": 50.0, "set_type": "normal", "rpe": 8.5, "exercise_notes": "Ejercicio", "rest_seconds": 100, "duration_seconds": 75, "import_key": "set-key"]],
             "routine_folders": [["id": "folder", "name": "Favoritas"]],
             "routines": [["id": "routine", "name": "Torso", "folder_id": "folder", "notes": "", "exercises_json": routineJSON]],
             "workout_drafts": [["id": "active", "payload": draftJSON]],

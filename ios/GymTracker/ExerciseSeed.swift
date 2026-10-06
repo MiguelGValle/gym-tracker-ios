@@ -117,10 +117,9 @@ enum ExerciseSeed {
             ("Solo mancuernas", ["Press banca mancuernas", "Remo mancuerna", "Zancadas", "Press hombro mancuernas", "Curl martillo"]),
         ]
         return templates.enumerated().map { index, template in
-            Routine(id: "seed-routine-\(index)", name: template.0, notes: "Plantilla editable. Ajusta ejercicios, series, repeticiones y descansos a tu plan.", exercises: template.1.compactMap { name in
+            Routine(id: "seed-routine-\(index)", name: template.0, notes: "Plantilla editable. Ajusta ejercicios, series y repeticiones a tu plan.", exercises: template.1.compactMap { name in
                 guard let exercise = all.first(where: { $0.name == name }) else { return nil }
-                let sets = (0..<3).map { _ in name == "Plancha" ? WorkoutSet(reps: 0, durationSeconds: 30) : WorkoutSet() }
-                return WorkoutExercise(exerciseId: exercise.id, exerciseName: name, sets: sets)
+                return WorkoutExercise(exerciseId: exercise.id, exerciseName: name)
             })
         }
     }

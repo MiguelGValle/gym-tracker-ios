@@ -125,21 +125,7 @@ struct ProfileView: View {
         } catch { review = nil; store.errorMessage = error.localizedDescription }
     }
     private func exportingWorkouts() {
-        func escape(_ value: String) -> String { "\"" + value.replacingOccurrences(of: "\"", with: "\"\"") + "\"" }
-        let iso = ISO8601DateFormatter()
-        var rows = ["title,start_time,end_time,description,exercise_title,exercise_notes,set_index,set_type,weight_kg,reps,rpe,distance_km,duration_seconds,superset_id"]
-        for workout in store.data.sessions.sorted(by: { $0.startedAt < $1.startedAt }) {
-            for block in workout.exercises {
-                for (index, set) in block.sets.enumerated() where set.completed {
-                    let fields = [workout.title, iso.string(from: workout.startedAt), workout.endedAt.map { iso.string(from: $0) } ?? "", workout.notes,
-                                  block.exerciseName.isEmpty ? store.exerciseName(block.exerciseId) : block.exerciseName, block.notes,
-                                  String(index), set.setType, String(set.weightKg), String(set.reps), set.rpe.map { String($0) } ?? "",
-                                  set.distanceKm.map { String($0) } ?? "", set.durationSeconds.map { String($0) } ?? "", block.supersetId ?? ""]
-                    rows.append(fields.map(escape).joined(separator: ","))
-                }
-            }
-        }
-        exportDocument = GymDocument(data: Data(rows.joined(separator: "\r\n").utf8))
+        exportDocument = GymDocument(data: Data(HevyCSV.export(store.data.sessions, catalog: store.data.exercises).utf8))
         exportType = .commaSeparatedText; exportName = "GymTracker-entrenamientos"; exporting = true
     }
 }
@@ -314,4 +300,3 @@ struct PlateCalculatorView: View {
             .onAppear { target = store.displayWeight(60); bar = store.displayWeight(20) }
     }
 }
-

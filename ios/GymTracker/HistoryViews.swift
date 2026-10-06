@@ -8,10 +8,10 @@ struct HistoryView: View {
 
     private var sessions: [WorkoutSession] {
         store.data.sessions.filter { session in
-            let matchesDate = !filterByDate || Calendar.current.isDate(session.startedAt, inSameDayAs: selectedDate)
+            let matchesDate = !filterByDate || Calendar.current.isDate(session.date, inSameDayAs: selectedDate)
             let searchable = ([session.title, session.notes] + session.exercises.map { $0.exerciseName.isEmpty ? store.exerciseName($0.exerciseId) : $0.exerciseName }).joined(separator: " ")
             return matchesDate && (search.isEmpty || searchable.localizedStandardContains(search))
-        }.sorted { $0.startedAt > $1.startedAt }
+        }.sorted { $0.date > $1.date }
     }
 
     var body: some View {
@@ -50,7 +50,7 @@ private struct HistorySessionRow: View {
     var session: WorkoutSession
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(session.startedAt.formatted(date: .abbreviated, time: .shortened))
+            Text(session.date.formatted(date: .abbreviated, time: .omitted))
                 .font(.caption).foregroundStyle(Theme.accent)
             Text(session.title).font(.headline)
             Text("\(session.exercises.count) ejercicios · \(session.completedSets) series · \(store.displayWeight(session.volume).gymNumber) \(store.weightUnit)")
@@ -77,14 +77,10 @@ private struct HistoryDetailView: View {
             if let session = session {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
-                        Text(session.startedAt.formatted(date: .complete, time: .shortened)).foregroundStyle(.secondary)
+                        Text(session.date.formatted(date: .complete, time: .omitted)).foregroundStyle(.secondary)
                         HStack {
                             MetricTile(title: "Series", value: "\(session.completedSets)", symbol: "checkmark.circle")
                             MetricTile(title: "Volumen · \(store.weightUnit)", value: store.displayWeight(session.volume).gymNumber, symbol: "scalemass")
-                        }
-                        if let end = session.endedAt {
-                            Label("Duración: \(Int(max(0, end.timeIntervalSince(session.startedAt)) / 60)) min", systemImage: "clock")
-                                .font(.subheadline).foregroundStyle(.secondary)
                         }
                         if !session.notes.isEmpty { GymCard { Text(session.notes).frame(maxWidth: .infinity, alignment: .leading) } }
                         ForEach(session.exercises) { exercise in
@@ -127,14 +123,8 @@ private struct HistoryDetailView: View {
 
     private func repeatSession(_ original: WorkoutSession) {
         guard store.data.draft == nil else { showExistingDraft = true; return }
-        var copy = original
-        copy.id = UUID().uuidString
-        copy.importKey = nil
-        copy.startedAt = Date()
-        copy.endedAt = nil
-        copy.exercises = copiedExercises(original.exercises)
-        store.mutate { data in if data.draft == nil { data.draft = copy } }
-        if store.data.draft?.id == copy.id { showActiveWorkout = true }
+        store.repeatWorkout(original)
+        if store.data.draft != nil { showActiveWorkout = true }
     }
 
     private func routine(from session: WorkoutSession) -> Routine {
@@ -146,23 +136,7 @@ private struct HistoryDetailView: View {
     }
 
     private func copiedExercises(_ exercises: [WorkoutExercise]) -> [WorkoutExercise] {
-        var supersets: [String: String] = [:]
-        return exercises.map { exercise in
-            var copy = exercise
-            copy.id = UUID().uuidString
-            if let old = exercise.supersetId {
-                if supersets[old] == nil { supersets[old] = UUID().uuidString }
-                copy.supersetId = supersets[old]
-            }
-            copy.sets = exercise.sets.map { set in
-                var next = set
-                next.id = UUID().uuidString
-                next.importKey = nil
-                next.completed = false
-                return next
-            }
-            return copy
-        }
+        WorkoutTemplates.exercises(from: exercises)
     }
 }
 
@@ -182,7 +156,6 @@ private struct HistoryExerciseCard: View {
                             if set.setType == "warmup" { Text("Calentamiento").font(.caption).foregroundStyle(.secondary) }
                             if let rpe = set.rpe { Text("RPE \(rpe.gymNumber)").font(.caption).foregroundStyle(.secondary) }
                             if let distance = set.distanceKm { Text("\(distance.gymNumber) km").font(.caption).foregroundStyle(.secondary) }
-                            if let seconds = set.durationSeconds { Text("\(seconds) s").font(.caption).foregroundStyle(.secondary) }
                         }
                         Spacer()
                         if set.completed { Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.accent).accessibilityLabel("Completada") }
@@ -214,14 +187,7 @@ private struct SessionHistoryEditor: View {
             Form {
                 Section("Sesión") {
                     TextField("Título", text: $session.title)
-                    DatePicker("Fecha e inicio", selection: Binding(get: { session.startedAt }, set: { date in
-                        let delta = date.timeIntervalSince(session.startedAt)
-                        session.startedAt = date
-                        if let end = session.endedAt { session.endedAt = end.addingTimeInterval(delta) }
-                    }))
-                    if session.endedAt != nil {
-                        DatePicker("Fin", selection: Binding(get: { session.endedAt ?? session.startedAt }, set: { session.endedAt = $0 }), in: session.startedAt...)
-                    }
+                    DatePicker("Fecha", selection: $session.date, displayedComponents: .date)
                     TextField("Notas", text: $session.notes, axis: .vertical).lineLimit(3...8)
                 }.listRowBackground(Theme.surface)
                 ForEach($session.exercises) { $exercise in
@@ -231,11 +197,7 @@ private struct SessionHistoryEditor: View {
                         ForEach($exercise.sets) { $set in HistorySetEditor(set: $set) }
                             .onDelete { offsets in exercise.sets.remove(atOffsets: offsets) }
                         Button("Añadir serie") {
-                            var set = exercise.sets.last ?? WorkoutSet()
-                            set.id = UUID().uuidString
-                            set.importKey = nil
-                            set.completed = true
-                            exercise.sets.append(set)
+                            exercise.sets.append(WorkoutTemplates.nextSet(from: exercise.sets.last))
                         }
                         Button("Eliminar ejercicio", role: .destructive) { session.exercises.removeAll { $0.id == exercise.id } }
                     } header: { Text(exercise.exerciseName.isEmpty ? store.exerciseName(exercise.exerciseId) : exercise.exerciseName) }
@@ -279,8 +241,10 @@ private struct HistorySetEditor: View {
     @Binding var set: WorkoutSet
     var body: some View {
         DisclosureGroup {
-            DecimalField(title: "Peso · \(store.weightUnit)", value: Binding(get: { store.displayWeight(set.weightKg) }, set: { set.weightKg = store.kgWeight($0) }))
-            Stepper("Repeticiones: \(set.reps)", value: $set.reps, in: 0...10000)
+            ReplaceableNumberField(title: "Peso · \(store.weightUnit)", value: Binding(get: { store.displayWeight(set.weightKg) }, set: { set.weightKg = store.kgWeight($0) }))
+                .frame(minHeight: 36)
+            ReplaceableNumberField(title: "Repeticiones", value: Binding(get: { Double(set.reps) }, set: { set.reps = Int($0) }), integer: true)
+                .frame(minHeight: 36)
             Picker("Tipo", selection: $set.setType) {
                 Text("Normal").tag("normal")
                 Text("Calentamiento").tag("warmup")
@@ -289,7 +253,6 @@ private struct HistorySetEditor: View {
             }
             OptionalSetNumberField(title: "RPE · 0–10", value: $set.rpe, range: 0...10)
             OptionalSetNumberField(title: "Distancia · km", value: $set.distanceKm, range: 0...100000)
-            OptionalSetNumberField(title: "Duración · segundos", value: Binding(get: { set.durationSeconds.map(Double.init) }, set: { set.durationSeconds = $0.map { Int($0.rounded()) } }), range: 0...10000000)
             Toggle("Serie completada", isOn: $set.completed)
         } label: {
             Text("\(store.displayWeight(set.weightKg).gymNumber) \(store.weightUnit) × \(set.reps)").font(.subheadline)

@@ -31,7 +31,8 @@ struct WorkoutExercise: Codable, Identifiable, Equatable {
     var exerciseId: String
     var exerciseName = ""
     var notes = ""
-    var restSeconds = 90
+    // Kept in the file format so older backups retain their recorded preferences.
+    var restSeconds = 0
     var supersetId: String? = nil
     var sets: [WorkoutSet] = [WorkoutSet()]
 }
@@ -40,14 +41,49 @@ struct WorkoutSession: Codable, Identifiable, Equatable {
     var id = UUID().uuidString
     var importKey: String? = nil
     var title = "Entrenamiento"
-    var startedAt = Date()
+    var startedAt = Calendar.current.startOfDay(for: Date())
     var endedAt: Date? = nil
+    var workoutDate: String? = nil
     var notes = ""
     var routineId: String? = nil
     var exercises: [WorkoutExercise] = []
+    /// A corrected calendar date is independent from retained legacy timestamps.
+    var date: Date {
+        get { workoutDate.flatMap(GymDate.localDate(fromCivilDay:)) ?? startedAt }
+        set { workoutDate = GymDate.dayKey(newValue) }
+    }
     var volume: Double { exercises.flatMap(\.sets).filter(\.completed).reduce(0) { $0 + $1.volume } }
     var completedSets: Int { exercises.flatMap(\.sets).filter(\.completed).count }
-    var duration: TimeInterval { max(0, (endedAt ?? Date()).timeIntervalSince(startedAt)) }
+}
+
+/// New entries copy training values, never the identity, completion or legacy timers.
+/// Existing history and drafts are not normalized when loading or editing.
+enum WorkoutTemplates {
+    static func nextSet(from source: WorkoutSet? = nil) -> WorkoutSet {
+        var set = source ?? WorkoutSet()
+        set.id = UUID().uuidString
+        set.importKey = nil
+        set.completed = false
+        set.durationSeconds = nil
+        return set
+    }
+
+    static func exercises(from sources: [WorkoutExercise], singleSet: Bool = false) -> [WorkoutExercise] {
+        var supersetIDs: [String: String] = [:]
+        return sources.map { source in
+            var exercise = source
+            exercise.id = UUID().uuidString
+            exercise.restSeconds = 0
+            if let old = source.supersetId {
+                if supersetIDs[old] == nil { supersetIDs[old] = UUID().uuidString }
+                exercise.supersetId = supersetIDs[old]
+            }
+            exercise.sets = singleSet
+                ? [nextSet(from: source.sets.first)]
+                : source.sets.map { nextSet(from: $0) }
+            return exercise
+        }
+    }
 }
 
 struct Routine: Codable, Identifiable, Equatable {

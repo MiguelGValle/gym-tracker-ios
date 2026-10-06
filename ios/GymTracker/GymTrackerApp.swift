@@ -2,7 +2,14 @@ import SwiftUI
 
 @main
 struct GymTrackerApp: App {
-    @StateObject private var store = GymStore()
+    @StateObject private var store: GymStore
+    init() {
+        let testingDirectory = ProcessInfo.processInfo.arguments.contains("-ui-testing-training")
+            ? FileManager.default.temporaryDirectory.appendingPathComponent("TrainingUITest-\(UUID().uuidString)", isDirectory: true)
+            : nil
+        _store = StateObject(wrappedValue: GymStore(directory: testingDirectory))
+        LegacyRestCleanup.clear()
+    }
     var body: some Scene {
         WindowGroup {
             RootView()
@@ -85,11 +92,11 @@ struct RootView: View {
 struct HomeView: View {
     @EnvironmentObject private var store: GymStore
     @State private var showWorkout = false
-    private var recent: [WorkoutSession] { store.data.sessions.sorted { $0.startedAt > $1.startedAt } }
+    private var recent: [WorkoutSession] { store.data.sessions.sorted { $0.date > $1.date } }
     private var todayLog: NutritionLog? { store.data.nutrition.first { Calendar.current.isDateInToday($0.date) } }
     private var week: [WorkoutSession] {
         guard let interval = Calendar.current.dateInterval(of: .weekOfYear, for: Date()) else { return [] }
-        return recent.filter { interval.contains($0.startedAt) }
+        return recent.filter { interval.contains($0.date) }
     }
     var body: some View {
         NavigationStack {
@@ -132,8 +139,8 @@ struct HomeView: View {
                     if let last = recent.first {
                         GymCard {
                             Text(last.title).font(.headline)
-                            Text(last.startedAt.formatted(date: .abbreviated, time: .omitted)).foregroundStyle(.secondary)
-                            Text("\(last.completedSets) series\(last.endedAt == nil ? "" : " · \(Int(last.duration / 60)) min") · \(store.displayWeight(last.volume).gymNumber) \(store.weightUnit)")
+                            Text(last.date.formatted(date: .abbreviated, time: .omitted)).foregroundStyle(.secondary)
+                            Text("\(last.completedSets) series · \(store.displayWeight(last.volume).gymNumber) \(store.weightUnit)")
                                 .font(.subheadline)
                         }
                     } else {

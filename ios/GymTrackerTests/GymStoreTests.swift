@@ -186,4 +186,129 @@ final class GymStoreTests: XCTestCase {
         XCTAssertEqual(store.data.sessions.count, 1)
         XCTAssertEqual(store.data.sessions[0].completedSets, 1)
     }
+
+    @MainActor
+    func testNewRoutineWorkoutStartsWithOneFreshSetAndPreservesTemplate() throws {
+        let store = GymStore(directory: try temporaryDirectory())
+        var first = WorkoutSet(reps: 8, weightKg: 45, rpe: 8, distanceKm: 1.2, durationSeconds: 120, completed: true)
+        first.importKey = "legacy-import"
+        let second = WorkoutSet(reps: 6, weightKg: 50, durationSeconds: 100, completed: true)
+        let block = WorkoutExercise(exerciseId: store.data.exercises[0].id, restSeconds: 90, sets: [first, second])
+        let routine = Routine(name: "Original", exercises: [block])
+        store.mutate { $0.routines.append(routine) }
+        store.startWorkout(routine: routine)
+        let draft = try XCTUnwrap(store.data.draft)
+        let created = try XCTUnwrap(draft.exercises.first?.sets.first)
+        XCTAssertEqual(draft.exercises[0].sets.count, 1)
+        XCTAssertEqual(created.weightKg, 45)
+        XCTAssertEqual(created.reps, 8)
+        XCTAssertEqual(created.rpe, 8)
+        XCTAssertEqual(created.distanceKm, 1.2)
+        XCTAssertNotEqual(created.id, first.id)
+        XCTAssertNil(created.importKey)
+        XCTAssertNil(created.durationSeconds)
+        XCTAssertFalse(created.completed)
+        XCTAssertEqual(draft.exercises[0].restSeconds, 0)
+        XCTAssertNil(draft.endedAt)
+        XCTAssertEqual(draft.startedAt, Calendar.current.startOfDay(for: draft.startedAt))
+        XCTAssertEqual(store.data.routines.last, routine)
+    }
+
+    @MainActor
+    func testRepeatedWorkoutStartsOneSetAndDoesNotAlterHistory() throws {
+        let directory = try temporaryDirectory()
+        let store = GymStore(directory: directory)
+        let first = WorkoutSet(reps: 0, weightKg: 20, durationSeconds: 30, completed: true)
+        let second = WorkoutSet(reps: 8, weightKg: 40, durationSeconds: 90, completed: true)
+        let original = WorkoutSession(importKey: "imported-session", title: "Histórico",
+            startedAt: Date(timeIntervalSince1970: 1_800_000_000), endedAt: Date(timeIntervalSince1970: 1_800_003_600),
+            notes: "Conservar", exercises: [WorkoutExercise(exerciseId: store.data.exercises[0].id, restSeconds: 120, sets: [first, second])])
+        store.mutate { $0.sessions.append(original) }
+        store.repeatWorkout(original)
+        let draft = try XCTUnwrap(store.data.draft)
+        XCTAssertNotEqual(draft.id, original.id)
+        XCTAssertNil(draft.importKey)
+        XCTAssertNil(draft.endedAt)
+        XCTAssertEqual(draft.exercises[0].sets.count, 1)
+        XCTAssertNil(draft.exercises[0].sets[0].durationSeconds)
+        XCTAssertFalse(draft.exercises[0].sets[0].completed)
+        XCTAssertEqual(draft.exercises[0].sets[0].reps, first.reps)
+        XCTAssertEqual(store.data.sessions, [original])
+        let reopened = GymStore(directory: directory)
+        XCTAssertEqual(reopened.data.sessions, [original])
+        XCTAssertEqual(reopened.data.draft, draft)
+    }
+
+    @MainActor
+    func testResumeKeepsLegacyDraftAllSetsDatesAndTimes() throws {
+        let directory = try temporaryDirectory()
+        let store = GymStore(directory: directory)
+        let sets = [WorkoutSet(reps: 10, weightKg: 50, durationSeconds: 40, completed: true),
+                    WorkoutSet(reps: 8, weightKg: 60, durationSeconds: 50)]
+        let original = WorkoutSession(title: "Borrador previo", startedAt: Date(timeIntervalSince1970: 1_800_000_000),
+            exercises: [WorkoutExercise(exerciseId: store.data.exercises[0].id, restSeconds: 105, sets: sets)])
+        store.mutate { $0.draft = original }
+        let reopened = GymStore(directory: directory)
+        reopened.startWorkout(routine: reopened.data.routines[0])
+        reopened.repeatWorkout(original)
+        XCTAssertEqual(reopened.data.draft, original)
+        XCTAssertEqual(try BackupCodec.decode(reopened.backupData()).draft, original)
+    }
+
+    @MainActor
+    func testHistoryEditAndBackupRetainLegacyTimesAndAllSets() throws {
+        let directory = try temporaryDirectory()
+        let store = GymStore(directory: directory)
+        let original = WorkoutSession(title: "Antes", startedAt: Date(timeIntervalSince1970: 1_800_000_000),
+            endedAt: Date(timeIntervalSince1970: 1_800_001_800),
+            exercises: [WorkoutExercise(exerciseId: store.data.exercises[0].id, restSeconds: 90,
+                sets: [WorkoutSet(reps: 0, durationSeconds: 30, completed: true),
+                       WorkoutSet(reps: 8, weightKg: 50, durationSeconds: 45, completed: true)])])
+        store.mutate { $0.sessions.append(original) }
+        store.mutate { $0.sessions[0].title = "Después"; $0.sessions[0].exercises[0].sets[1].weightKg = 55 }
+        XCTAssertNil(store.errorMessage)
+        let edited = store.data.sessions[0]
+        XCTAssertEqual(edited.exercises[0].sets.count, 2)
+        XCTAssertEqual(edited.startedAt, original.startedAt)
+        XCTAssertEqual(edited.endedAt, original.endedAt)
+        XCTAssertEqual(edited.exercises[0].restSeconds, 90)
+        XCTAssertEqual(edited.exercises[0].sets.map(\.durationSeconds), [30, 45])
+        XCTAssertEqual(try BackupCodec.decode(store.backupData()).sessions, [edited])
+        XCTAssertEqual(GymStore(directory: directory).data.sessions, [edited])
+    }
+
+    @MainActor
+    func testFinishingNewWorkoutDoesNotRecordAnEndTime() throws {
+        let store = GymStore(directory: try temporaryDirectory())
+        store.startWorkout(routine: store.data.routines[0])
+        var draft = try XCTUnwrap(store.data.draft)
+        draft.exercises[0].sets[0].completed = true
+        try store.finishWorkout(draft)
+        XCTAssertNil(store.data.sessions[0].endedAt)
+        XCTAssertNil(store.data.sessions[0].exercises[0].sets[0].durationSeconds)
+    }
+
+    @MainActor
+    func testOwnCSVReimportKeepsOriginalSetIDsAndDoesNotDuplicateSeries() throws {
+        let store = GymStore(directory: try temporaryDirectory())
+        let date = try XCTUnwrap(GymDate.localDate(fromCivilDay: "2026-10-06"))
+        let sessions = (0..<2).map { _ in
+            WorkoutSession(title: "Sesión", startedAt: Calendar.current.startOfDay(for: date), workoutDate: "2026-10-06",
+                exercises: [WorkoutExercise(exerciseId: store.data.exercises[0].id, exerciseName: store.data.exercises[0].name,
+                    sets: [WorkoutSet(reps: 8, weightKg: 50, completed: true), WorkoutSet(reps: 8, weightKg: 50, completed: true)])])
+        }
+        store.mutate { $0.sessions = sessions }
+        let csv = HevyCSV.export(sessions, catalog: store.data.exercises)
+        let preview = try store.previewHevyCSV(csv)
+        try store.importHevy(preview)
+        try store.importHevy(preview)
+        XCTAssertEqual(store.data.sessions.count, 2)
+        XCTAssertEqual(store.data.sessions.flatMap(\.exercises).flatMap(\.sets).count, 4)
+        XCTAssertEqual(store.data.sessions.flatMap(\.exercises).flatMap(\.sets).map(\.id), sessions.flatMap(\.exercises).flatMap(\.sets).map(\.id))
+        let empty = GymStore(directory: try temporaryDirectory())
+        try empty.importHevy(try empty.previewHevyCSV(csv))
+        try empty.importHevy(try empty.previewHevyCSV(csv))
+        XCTAssertEqual(empty.data.sessions.count, 2)
+        XCTAssertEqual(empty.data.sessions.flatMap(\.exercises).flatMap(\.sets).count, 4)
+    }
 }

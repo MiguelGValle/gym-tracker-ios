@@ -38,7 +38,7 @@ enum TrainingMetrics {
         sessions.flatMap { session in
             session.exercises.flatMap { exercise in
                 exercise.sets.filter { $0.completed && $0.setType.lowercased() != "warmup" }.map {
-                    PerformanceEntry(sessionID: session.id, date: session.startedAt,
+                    PerformanceEntry(sessionID: session.id, date: session.date,
                                      exerciseID: exercise.exerciseId, exerciseName: exercise.exerciseName, set: $0)
                 }
             }
@@ -46,7 +46,7 @@ enum TrainingMetrics {
     }
 
     static func dailyVolume(_ sessions: [WorkoutSession], calendar: Calendar = .current) -> [TrainingPoint] {
-        Dictionary(grouping: sessions, by: { calendar.startOfDay(for: $0.startedAt) })
+        Dictionary(grouping: sessions, by: { calendar.startOfDay(for: $0.date) })
             .map { TrainingPoint(date: $0.key, value: $0.value.reduce(0) { $0 + $1.volume }) }
             .sorted { $0.date < $1.date }
     }
@@ -68,7 +68,7 @@ enum TrainingMetrics {
             return calendar.date(byAdding: .day, value: -offset, to: day) ?? day
         }
         let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: today)) ?? today
-        let weeks = Set(sessions.filter { $0.startedAt < tomorrow }.map { monday($0.startedAt) })
+        let weeks = Set(sessions.filter { $0.date < tomorrow }.map { monday($0.date) })
         var cursor = monday(today)
         if !weeks.contains(cursor) { cursor = calendar.date(byAdding: .day, value: -7, to: cursor) ?? cursor }
         var current = 0
@@ -125,7 +125,7 @@ struct ProgressViewScreen: View {
     @State private var formula = OneRMFormula.epley
     @State private var selectedExercise = ""
 
-    private var sessions: [WorkoutSession] { store.data.sessions.filter { period.includes($0.startedAt) } }
+    private var sessions: [WorkoutSession] { store.data.sessions.filter { period.includes($0.date) } }
     private var entries: [PerformanceEntry] { TrainingMetrics.workingEntries(sessions) }
     private var exerciseIDs: [String] {
         Set(entries.map(\.exerciseID)).sorted { store.exerciseName($0).localizedStandardCompare(store.exerciseName($1)) == .orderedAscending }
@@ -159,7 +159,7 @@ struct ProgressViewScreen: View {
     private var summary: some View {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
             MetricTile(title: "Entrenamientos", value: "\(sessions.count)", symbol: "dumbbell.fill")
-            MetricTile(title: "Días activos", value: "\(Set(sessions.map { GymDate.dayKey($0.startedAt) }).count)", symbol: "calendar")
+            MetricTile(title: "Días activos", value: "\(Set(sessions.map { GymDate.dayKey($0.date) }).count)", symbol: "calendar")
             MetricTile(title: "Series efectivas", value: "\(entries.count)", symbol: "checkmark.circle")
             MetricTile(title: "Volumen · \(store.weightUnit)", value: store.displayWeight(sessions.reduce(0) { $0 + $1.volume }).gymNumber, symbol: "scalemass")
         }
@@ -221,7 +221,6 @@ struct ProgressViewScreen: View {
                 recordRow("Más repeticiones", metric: { Double($0.reps) }, unit: "reps")
                 recordRow("Volumen de una serie", metric: { $0.volume }, unit: store.weightUnit, weight: true)
                 recordRow("Mayor distancia", metric: { $0.distanceKm ?? 0 }, unit: "km")
-                recordRow("Mayor duración", metric: { Double($0.durationSeconds ?? 0) }, unit: "s")
                 Text("Marcas del periodo elegido, sin calentamientos. El 1RM es una estimación matemática; pierde precisión con muchas repeticiones.")
                     .font(.caption).foregroundStyle(.secondary)
             }
