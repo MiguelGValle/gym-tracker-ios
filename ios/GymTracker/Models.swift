@@ -20,6 +20,7 @@ struct WorkoutSet: Codable, Identifiable, Equatable {
     var setType = "normal"
     var rpe: Double? = nil
     var distanceKm: Double? = nil
+    var legacyRestSeconds: Int? = nil
     var durationSeconds: Int? = nil
     var completed = false
     var volume: Double { setType == "warmup" ? 0 : weightKg * Double(reps) }
@@ -64,6 +65,7 @@ enum WorkoutTemplates {
         set.id = UUID().uuidString
         set.importKey = nil
         set.completed = false
+        set.legacyRestSeconds = nil
         set.durationSeconds = nil
         return set
     }
@@ -83,6 +85,20 @@ enum WorkoutTemplates {
                 : source.sets.map { nextSet(from: $0) }
             return exercise
         }
+    }
+}
+
+enum WorkoutHistory {
+    static func recentFirst(_ sessions: [WorkoutSession]) -> [WorkoutSession] {
+        let rows = sessions.enumerated().map { (offset: $0.offset, session: $0.element, day: GymDate.dayKey($0.element.date)) }
+        let civilDays = Set(rows.filter { $0.session.workoutDate != nil }.map { $0.day })
+        return rows.sorted { left, right in
+            if left.day != right.day { return left.day > right.day }
+            if !civilDays.contains(left.day), left.session.startedAt != right.session.startedAt {
+                return left.session.startedAt > right.session.startedAt
+            }
+            return left.offset > right.offset
+        }.map { $0.session }
     }
 }
 

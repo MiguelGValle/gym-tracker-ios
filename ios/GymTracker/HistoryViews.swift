@@ -7,11 +7,11 @@ struct HistoryView: View {
     @State private var filterByDate = false
 
     private var sessions: [WorkoutSession] {
-        store.data.sessions.filter { session in
+        WorkoutHistory.recentFirst(store.data.sessions).filter { session in
             let matchesDate = !filterByDate || Calendar.current.isDate(session.date, inSameDayAs: selectedDate)
             let searchable = ([session.title, session.notes] + session.exercises.map { $0.exerciseName.isEmpty ? store.exerciseName($0.exerciseId) : $0.exerciseName }).joined(separator: " ")
             return matchesDate && (search.isEmpty || searchable.localizedStandardContains(search))
-        }.sorted { $0.date > $1.date }
+        }
     }
 
     var body: some View {

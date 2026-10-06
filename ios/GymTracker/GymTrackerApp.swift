@@ -92,7 +92,7 @@ struct RootView: View {
 struct HomeView: View {
     @EnvironmentObject private var store: GymStore
     @State private var showWorkout = false
-    private var recent: [WorkoutSession] { store.data.sessions.sorted { $0.date > $1.date } }
+    private var recent: [WorkoutSession] { WorkoutHistory.recentFirst(store.data.sessions) }
     private var todayLog: NutritionLog? { store.data.nutrition.first { Calendar.current.isDateInToday($0.date) } }
     private var week: [WorkoutSession] {
         guard let interval = Calendar.current.dateInterval(of: .weekOfYear, for: Date()) else { return [] }

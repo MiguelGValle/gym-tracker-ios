@@ -3,7 +3,7 @@ import XCTest
 
 final class CoreTests: XCTestCase {
     func testAddedSetCopiesLatestValuesWithoutCompletionIdentityOrTime() {
-        var previous = WorkoutSet(reps: 7, weightKg: 62.5, setType: "dropset", rpe: 9, distanceKm: 2,
+        var previous = WorkoutSet(reps: 7, weightKg: 62.5, setType: "dropset", rpe: 9, distanceKm: 2, legacyRestSeconds: 90,
                                   durationSeconds: 75, completed: true)
         previous.importKey = "external-set"
         let added = WorkoutTemplates.nextSet(from: previous)
@@ -15,6 +15,7 @@ final class CoreTests: XCTestCase {
         XCTAssertNotEqual(added.id, previous.id)
         XCTAssertNil(added.importKey)
         XCTAssertNil(added.durationSeconds)
+        XCTAssertNil(added.legacyRestSeconds)
         XCTAssertFalse(added.completed)
         XCTAssertEqual(previous.durationSeconds, 75)
         XCTAssertTrue(previous.completed)
@@ -199,6 +200,7 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(value.sessions[0].exercises[0].sets[0].importKey, "set-key")
         XCTAssertEqual(value.sessions[0].exercises[0].sets[0].rpe, 8.5)
         XCTAssertEqual(value.sessions[0].exercises[0].restSeconds, 100)
+        XCTAssertEqual(value.sessions[0].exercises[0].sets[0].legacyRestSeconds, 100)
         XCTAssertEqual(value.sessions[0].exercises[0].sets[0].durationSeconds, 75)
         XCTAssertNotNil(value.sessions[0].endedAt)
         XCTAssertEqual(value.routines.count, 1)
@@ -223,6 +225,30 @@ final class CoreTests: XCTestCase {
         tables["exercises"] = []
         document["tables"] = tables
         XCTAssertThrowsError(try BackupCodec.decode(JSONSerialization.data(withJSONObject: document)))
+    }
+
+    func testAndroidBackupKeepsCorrectedCivilDatesSeparateFromLegacyTimes() throws {
+        var document = try XCTUnwrap(JSONSerialization.jsonObject(with: androidFixture()) as? [String: Any])
+        var tables = try XCTUnwrap(document["tables"] as? [String: Any])
+        var sessions = try XCTUnwrap(tables["workout_sessions"] as? [[String: Any]])
+        sessions[0]["date_epoch_day"] = 20700
+        tables["workout_sessions"] = sessions
+        var drafts = try XCTUnwrap(tables["workout_drafts"] as? [[String: Any]])
+        let payload = try XCTUnwrap(drafts[0]["payload"] as? String)
+        var draft = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(payload.utf8)) as? [String: Any])
+        draft["dateEpochDay"] = 20699
+        drafts[0]["payload"] = String(data: try JSONSerialization.data(withJSONObject: draft), encoding: .utf8)
+        tables["workout_drafts"] = drafts
+        document["tables"] = tables
+        let decoded = try BackupCodec.decode(JSONSerialization.data(withJSONObject: document))
+        XCTAssertEqual(decoded.sessions[0].workoutDate, GymDate.dayKey(GymDate.fromEpochDay(20700)))
+        XCTAssertEqual(decoded.draft?.workoutDate, GymDate.dayKey(GymDate.fromEpochDay(20699)))
+        XCTAssertEqual(GymDate.dayKey(decoded.sessions[0].startedAt), "2026-09-10")
+        XCTAssertEqual(GymDate.dayKey(try XCTUnwrap(decoded.sessions[0].endedAt)), "2026-09-10")
+        XCTAssertEqual(GymDate.dayKey(try XCTUnwrap(decoded.draft?.startedAt)), "2026-09-11")
+        let native = try BackupCodec.decode(BackupCodec.encode(decoded))
+        XCTAssertEqual(native.sessions, decoded.sessions)
+        XCTAssertEqual(native.draft, decoded.draft)
     }
 
     private func androidFixture() throws -> Data {

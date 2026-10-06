@@ -311,4 +311,17 @@ final class GymStoreTests: XCTestCase {
         XCTAssertEqual(empty.data.sessions.count, 2)
         XCTAssertEqual(empty.data.sessions.flatMap(\.exercises).flatMap(\.sets).count, 4)
     }
+
+    @MainActor
+    func testPreviousSetAndLatestSessionUseNewestSavedWorkoutOnSameDay() throws {
+        let store = GymStore(directory: try temporaryDirectory())
+        let sessions = [40.0, 60.0].map { weight in
+            WorkoutSession(title: "Mismo día", workoutDate: "2026-10-06",
+                exercises: [WorkoutExercise(exerciseId: store.data.exercises[0].id,
+                    sets: [WorkoutSet(reps: 8, weightKg: weight, completed: true)])])
+        }
+        store.mutate { $0.sessions = sessions }
+        XCTAssertEqual(store.previousSet(exerciseId: store.data.exercises[0].id, index: 0)?.weightKg, 60)
+        XCTAssertEqual(WorkoutHistory.recentFirst(store.data.sessions).first?.id, sessions[1].id)
+    }
 }

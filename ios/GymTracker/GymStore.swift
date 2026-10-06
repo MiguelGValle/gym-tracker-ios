@@ -92,7 +92,7 @@ final class GymStore: ObservableObject {
 
     func previousSet(exerciseId: String, index: Int) -> WorkoutSet? {
         guard index >= 0 else { return nil }
-        for session in data.sessions.sorted(by: { $0.date > $1.date }) {
+        for session in WorkoutHistory.recentFirst(data.sessions) {
             for block in session.exercises where block.exerciseId == exerciseId {
                 let sets = block.sets.filter(\.completed)
                 if sets.indices.contains(index) { return sets[index] }
@@ -243,6 +243,7 @@ enum GymValidation {
                       ["normal", "warmup", "failure", "dropset"].contains(set.setType),
                       set.rpe.map({ $0.isFinite && (0...10).contains($0) }) ?? true,
                       set.distanceKm.map({ $0.isFinite && (0...1_000_000).contains($0) }) ?? true,
+                      set.legacyRestSeconds.map({ (0...86400).contains($0) }) ?? true,
                       set.durationSeconds.map({ (0...31_536_000).contains($0) }) ?? true else { throw GymError.invalid("Repeticiones, carga, RPE, distancia o duración inválidas.") }
                 if set.completed && set.reps == 0 && (set.distanceKm ?? 0) == 0 && (set.durationSeconds ?? 0) == 0 { throw GymError.invalid("Una serie completada necesita repeticiones, distancia o duración.") }
             }
