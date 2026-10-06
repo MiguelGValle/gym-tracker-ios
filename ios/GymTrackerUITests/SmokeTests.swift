@@ -27,8 +27,8 @@ final class SmokeTests: XCTestCase {
         XCTAssertEqual(reps.value as? String, "6")
         app.buttons["Añadir serie"].firstMatch.tap()
         XCTAssertTrue(app.staticTexts["Serie 2"].waitForExistence(timeout: 5))
-        XCTAssertEqual(app.textFields["Peso"].element(boundBy: 1).value as? String, "42")
-        XCTAssertEqual(app.textFields["Reps"].element(boundBy: 1).value as? String, "6")
+        XCTAssertEqual(app.textFields.matching(identifier: "Peso").element(boundBy: 1).value as? String, "42")
+        XCTAssertEqual(app.textFields.matching(identifier: "Reps").element(boundBy: 1).value as? String, "6")
     }
 
     func testPrimaryScreensLaunch() {
