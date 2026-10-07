@@ -22,6 +22,7 @@ struct WorkoutSet: Codable, Identifiable, Equatable {
     var distanceKm: Double? = nil
     var legacyRestSeconds: Int? = nil
     var durationSeconds: Int? = nil
+    // Retained for old drafts and backups; it no longer controls saving or statistics.
     var completed = false
     var volume: Double { setType == "warmup" ? 0 : weightKg * Double(reps) }
     var estimatedOneRM: Double { reps > 0 && reps <= 12 && setType != "warmup" ? (reps == 1 ? weightKg : weightKg * (1 + Double(reps) / 30)) : 0 }
@@ -53,11 +54,12 @@ struct WorkoutSession: Codable, Identifiable, Equatable {
         get { workoutDate.flatMap(GymDate.localDate(fromCivilDay:)) ?? startedAt }
         set { workoutDate = GymDate.dayKey(newValue) }
     }
-    var volume: Double { exercises.flatMap(\.sets).filter(\.completed).reduce(0) { $0 + $1.volume } }
-    var completedSets: Int { exercises.flatMap(\.sets).filter(\.completed).count }
+    var volume: Double { exercises.flatMap(\.sets).reduce(0) { $0 + $1.volume } }
+    // Keep the API name so old callers and file formats remain compatible.
+    var completedSets: Int { exercises.flatMap(\.sets).count }
 }
 
-/// New entries copy training values, never the identity, completion or legacy timers.
+/// New entries copy training values, never the identity, failure mark or legacy timers.
 /// Existing history and drafts are not normalized when loading or editing.
 enum WorkoutTemplates {
     static func nextSet(from source: WorkoutSet? = nil) -> WorkoutSet {
@@ -65,6 +67,7 @@ enum WorkoutTemplates {
         set.id = UUID().uuidString
         set.importKey = nil
         set.completed = false
+        if set.setType == "failure" { set.setType = "normal" }
         set.legacyRestSeconds = nil
         set.durationSeconds = nil
         return set

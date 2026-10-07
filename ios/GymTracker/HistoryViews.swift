@@ -38,7 +38,8 @@ struct HistoryView: View {
                     }
                 }
             }
-            .scrollContentBackground(.hidden).background(Theme.background)
+            .listStyle(.insetGrouped)
+            .gymScreenStyle()
             .searchable(text: $search, prompt: "Sesión, ejercicio o notas")
             .navigationTitle("Historial")
         }
@@ -49,14 +50,14 @@ private struct HistorySessionRow: View {
     @EnvironmentObject private var store: GymStore
     var session: WorkoutSession
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 9) {
             Text(session.date.formatted(date: .abbreviated, time: .omitted))
-                .font(.caption).foregroundStyle(Theme.accent)
-            Text(session.title).font(.headline)
+                .font(.caption.weight(.semibold)).foregroundStyle(Theme.accent)
+            Text(session.title).font(.system(.headline, design: .rounded))
             Text("\(session.exercises.count) ejercicios · \(session.completedSets) series · \(store.displayWeight(session.volume).gymNumber) \(store.weightUnit)")
                 .font(.caption).foregroundStyle(.secondary)
             if !session.notes.isEmpty { Text(session.notes).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
-        }.padding(.vertical, 5)
+        }.padding(.vertical, 10)
     }
 }
 
@@ -76,10 +77,13 @@ private struct HistoryDetailView: View {
         Group {
             if let session = session {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
-                        Text(session.date.formatted(date: .complete, time: .omitted)).foregroundStyle(.secondary)
-                        HStack {
-                            MetricTile(title: "Series", value: "\(session.completedSets)", symbol: "checkmark.circle")
+                    VStack(alignment: .leading, spacing: 20) {
+                        Text(session.date.formatted(date: .complete, time: .omitted)).font(.subheadline).foregroundStyle(.secondary)
+                        HStack(spacing: 12) {
+                            MetricTile(title: "Series", value: "\(session.completedSets)", symbol: "list.number")
+                                .accessibilityIdentifier("history-set-count")
+                                .accessibilityLabel("Series guardadas")
+                                .accessibilityValue("\(session.completedSets)")
                             MetricTile(title: "Volumen · \(store.weightUnit)", value: store.displayWeight(session.volume).gymNumber, symbol: "scalemass")
                         }
                         if !session.notes.isEmpty { GymCard { Text(session.notes).frame(maxWidth: .infinity, alignment: .leading) } }
@@ -87,10 +91,10 @@ private struct HistoryDetailView: View {
                             HistoryExerciseCard(exercise: exercise)
                         }
                         Button(action: { repeatSession(session) }) { Label("Repetir entrenamiento", systemImage: "arrow.clockwise") }
-                            .buttonStyle(.borderedProminent).tint(Theme.accent).frame(maxWidth: .infinity)
+                            .buttonStyle(GymPrimaryButtonStyle()).tint(Theme.accent).frame(maxWidth: .infinity)
                         Button(action: { newRoutine = routine(from: session) }) { Label("Crear rutina con esta sesión", systemImage: "list.bullet.rectangle") }
-                            .buttonStyle(.bordered).frame(maxWidth: .infinity)
-                    }.padding()
+                            .buttonStyle(.bordered).controlSize(.large).frame(maxWidth: .infinity)
+                    }.padding(.horizontal, 20).padding(.vertical, 16)
                 }.navigationTitle(session.title)
                     .toolbar {
                         ToolbarItem(placement: .navigationBarTrailing) {
@@ -104,7 +108,7 @@ private struct HistoryDetailView: View {
                 EmptyState(title: "Sesión no disponible", message: "Este entrenamiento ya no está en el historial.", symbol: "calendar.badge.exclamationmark")
             }
         }
-        .background(Theme.background).navigationBarTitleDisplayMode(.inline)
+        .gymScreenStyle().navigationBarTitleDisplayMode(.inline)
         .sheet(item: $editing) { SessionHistoryEditor(session: $0) }
         .sheet(item: $newRoutine) { RoutineEditor(routine: $0) }
         .sheet(isPresented: $showActiveWorkout) { ActiveWorkoutView() }
@@ -146,20 +150,27 @@ private struct HistoryExerciseCard: View {
     var body: some View {
         GymCard {
             VStack(alignment: .leading, spacing: 10) {
-                Text(exercise.exerciseName.isEmpty ? store.exerciseName(exercise.exerciseId) : exercise.exerciseName).font(.headline)
+                Text(exercise.exerciseName.isEmpty ? store.exerciseName(exercise.exerciseId) : exercise.exerciseName).font(.system(.headline, design: .rounded))
+                    .accessibilityIdentifier("history-exercise-\(exercise.id)")
                 if !exercise.notes.isEmpty { Text(exercise.notes).font(.subheadline).foregroundStyle(.secondary) }
                 ForEach(Array(exercise.sets.enumerated()), id: \.element.id) { index, set in
                     HStack(alignment: .firstTextBaseline) {
-                        Text("\(index + 1)").font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 22)
+                        Text("\(index + 1)").font(.caption.monospacedDigit().weight(.semibold)).foregroundStyle(.secondary)
+                            .frame(width: 28, height: 28)
+                            .background(Theme.background, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                         VStack(alignment: .leading, spacing: 3) {
-                            Text("\(store.displayWeight(set.weightKg).gymNumber) \(store.weightUnit) × \(set.reps)")
+                            Text("\(store.displayWeight(set.weightKg).gymNumber) \(store.weightUnit) × \(set.reps)").font(.subheadline.weight(.medium)).monospacedDigit()
+                                .accessibilityIdentifier("history-set-\(set.id)")
                             if set.setType == "warmup" { Text("Calentamiento").font(.caption).foregroundStyle(.secondary) }
+                            if set.setType == "failure" {
+                                Text("Al fallo").font(.caption).foregroundStyle(Theme.accent)
+                                    .accessibilityIdentifier("history-failure-\(set.id)")
+                            }
                             if let rpe = set.rpe { Text("RPE \(rpe.gymNumber)").font(.caption).foregroundStyle(.secondary) }
                             if let distance = set.distanceKm { Text("\(distance.gymNumber) km").font(.caption).foregroundStyle(.secondary) }
                         }
                         Spacer()
-                        if set.completed { Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.accent).accessibilityLabel("Completada") }
-                    }
+                    }.padding(.vertical, 4)
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -177,7 +188,6 @@ private struct SessionHistoryEditor: View {
             && !session.exercises.isEmpty
             && session.exercises.allSatisfy { !$0.sets.isEmpty && $0.sets.allSatisfy {
                 $0.weightKg.isFinite && $0.weightKg >= 0 && $0.reps >= 0
-                    && (!$0.completed || $0.reps > 0 || ($0.distanceKm ?? 0) > 0 || ($0.durationSeconds ?? 0) > 0)
             } }
             && (session.endedAt == nil || session.endedAt! >= session.startedAt)
     }
@@ -208,7 +218,7 @@ private struct SessionHistoryEditor: View {
                     if !valid { Text("Escribe un título y conserva al menos un ejercicio con una serie válida.").font(.caption).foregroundStyle(.secondary) }
                 }.listRowBackground(Theme.surface)
             }
-            .scrollContentBackground(.hidden).background(Theme.background)
+            .gymScreenStyle()
             .navigationTitle("Editar sesión").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancelar") { dismiss() } }
@@ -218,7 +228,6 @@ private struct SessionHistoryEditor: View {
                 ExercisePicker { selected in
                     var entry = WorkoutExercise(exerciseId: selected.id)
                     entry.exerciseName = selected.name
-                    entry.sets[0].completed = true
                     session.exercises.append(entry)
                 }
             }
@@ -253,7 +262,7 @@ private struct HistorySetEditor: View {
             }
             OptionalSetNumberField(title: "RPE · 0–10", value: $set.rpe, range: 0...10)
             OptionalSetNumberField(title: "Distancia · km", value: $set.distanceKm, range: 0...100000)
-            Toggle("Serie completada", isOn: $set.completed)
+            FailureSetCheckbox(set: $set)
         } label: {
             Text("\(store.displayWeight(set.weightKg).gymNumber) \(store.weightUnit) × \(set.reps)").font(.subheadline)
         }

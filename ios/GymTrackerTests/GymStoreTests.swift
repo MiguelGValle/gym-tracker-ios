@@ -85,33 +85,101 @@ final class GymStoreTests: XCTestCase {
     }
 
     @MainActor
-    func testFinishingWorkoutRetainsCompletedSetsAndClearsMatchingDraft() throws {
-        let store = GymStore(directory: try temporaryDirectory())
+    func testFinishingUnmarkedWorkoutRetainsEveryExerciseAndClearsMatchingDraft() throws {
+        let directory = try temporaryDirectory()
+        let store = GymStore(directory: directory)
         store.startWorkout(routine: store.data.routines[0])
         let originalID = try XCTUnwrap(store.data.draft?.id)
         store.startWorkout()
         XCTAssertEqual(store.data.draft?.id, originalID)
         var workout = try XCTUnwrap(store.data.draft)
-        workout.exercises[0].sets[0].completed = true
         workout.exercises[0].sets[0].weightKg = 50
+        XCTAssertTrue(workout.exercises.flatMap(\.sets).allSatisfy { !$0.completed })
         try store.finishWorkout(workout)
         XCTAssertNil(store.data.draft)
         XCTAssertEqual(store.data.sessions.count, 1)
-        XCTAssertEqual(store.data.sessions[0].completedSets, 1)
-        XCTAssertEqual(store.data.sessions[0].exercises.count, 1)
+        XCTAssertEqual(store.data.sessions[0].completedSets, workout.exercises.flatMap(\.sets).count)
+        XCTAssertEqual(store.data.sessions[0].exercises.count, workout.exercises.count)
+        XCTAssertEqual(store.data.sessions[0].exercises.map(\.id), workout.exercises.map(\.id))
+        XCTAssertEqual(store.data.sessions[0].exercises.flatMap(\.sets).map(\.id), workout.exercises.flatMap(\.sets).map(\.id))
+        XCTAssertTrue(store.data.sessions[0].exercises.flatMap(\.sets).allSatisfy(\.completed))
         XCTAssertEqual(store.data.sessions[0].volume, 500)
+        XCTAssertEqual(GymStore(directory: directory).data.sessions, store.data.sessions)
+    }
+
+    @MainActor
+    func testFinishingMixedFlagsKeepsFailureAndAllValuesAcrossReopenAndBackup() throws {
+        let directory = try temporaryDirectory()
+        let store = GymStore(directory: directory)
+        let sets = [WorkoutSet(reps: 10, weightKg: 50, completed: true),
+                    WorkoutSet(reps: 8, weightKg: 60, setType: "failure", rpe: 10),
+                    WorkoutSet(reps: 6, weightKg: 40, setType: "dropset"),
+                    WorkoutSet(reps: 12, weightKg: 20, setType: "warmup", completed: true)]
+        let workout = WorkoutSession(title: "Todas las series", workoutDate: "2026-10-06", notes: "Sin omisiones", exercises: [
+            WorkoutExercise(exerciseId: store.data.exercises[0].id, notes: "Primer bloque", restSeconds: 80, supersetId: "group", sets: Array(sets.prefix(2))),
+            WorkoutExercise(exerciseId: store.data.exercises[1].id, notes: "Segundo bloque", restSeconds: 90, supersetId: "group", sets: Array(sets.suffix(2)))])
+        store.mutate { $0.draft = workout }
+        try store.finishWorkout(workout)
+        var expected = workout
+        for exercise in expected.exercises.indices {
+            for index in expected.exercises[exercise].sets.indices { expected.exercises[exercise].sets[index].completed = true }
+        }
+        XCTAssertEqual(store.data.sessions, [expected])
+        XCTAssertNil(store.data.draft)
+        let reopened = GymStore(directory: directory)
+        XCTAssertEqual(reopened.data.sessions, [expected])
+        XCTAssertEqual(try BackupCodec.decode(reopened.backupData()).sessions, [expected])
+        XCTAssertEqual(reopened.data.sessions[0].volume, 1220)
+        XCTAssertEqual(reopened.previousSet(exerciseId: store.data.exercises[0].id, index: 1)?.setType, "failure")
+        let csv = HevyCSV.export(reopened.data.sessions, catalog: reopened.data.exercises)
+        let preview = try reopened.previewHevyCSV(csv)
+        XCTAssertTrue(preview.warnings.isEmpty)
+        XCTAssertEqual(preview.sessions[0].exercises.flatMap(\.sets).map(\.setType), sets.map(\.setType))
+        XCTAssertEqual(preview.sessions[0].exercises.flatMap(\.sets).map(\.id), sets.map(\.id))
+    }
+
+    @MainActor
+    func testEmptyWorkoutCannotFinishAndRetainsDraftOnDisk() throws {
+        let directory = try temporaryDirectory()
+        let store = GymStore(directory: directory)
+        store.startWorkout()
+        let workout = try XCTUnwrap(store.data.draft)
+        let before = store.data
+        let file = directory.appendingPathComponent("gym-data.json")
+        let stored = try Data(contentsOf: file)
+        XCTAssertThrowsError(try store.finishWorkout(workout))
+        XCTAssertEqual(store.data, before)
+        XCTAssertEqual(try Data(contentsOf: file), stored)
+        XCTAssertEqual(GymStore(directory: directory).data.draft, workout)
+    }
+
+    @MainActor
+    func testZeroMetricsSaveIndependentlyOfLegacyCompletionOrFailureFlag() throws {
+        let store = GymStore(directory: try temporaryDirectory())
+        let workout = WorkoutSession(exercises: [WorkoutExercise(exerciseId: store.data.exercises[0].id,
+            sets: [WorkoutSet(reps: 0), WorkoutSet(reps: 0, setType: "failure", completed: true)])])
+        store.mutate { $0.draft = workout }
+        XCTAssertNil(store.errorMessage)
+        try store.finishWorkout(workout)
+        XCTAssertNil(store.data.draft)
+        XCTAssertEqual(store.data.sessions[0].completedSets, 2)
+        XCTAssertEqual(store.data.sessions[0].exercises[0].sets.map(\.setType), ["normal", "failure"])
     }
 
     @MainActor
     func testFinishValidationFailureRetainsDraftAndDoesNotCreateSession() throws {
-        let store = GymStore(directory: try temporaryDirectory())
+        let directory = try temporaryDirectory()
+        let store = GymStore(directory: directory)
         store.startWorkout(routine: store.data.routines[0])
+        let before = store.data
+        let file = directory.appendingPathComponent("gym-data.json")
+        let stored = try Data(contentsOf: file)
         var workout = try XCTUnwrap(store.data.draft)
-        workout.exercises[0].sets[0].completed = true
         workout.exercises[0].sets[0].rpe = 11
         XCTAssertThrowsError(try store.finishWorkout(workout))
-        XCTAssertNotNil(store.data.draft)
-        XCTAssertTrue(store.data.sessions.isEmpty)
+        XCTAssertEqual(store.data, before)
+        XCTAssertEqual(try Data(contentsOf: file), stored)
+        XCTAssertEqual(GymStore(directory: directory).data, before)
     }
 
     @MainActor
@@ -120,11 +188,13 @@ final class GymStoreTests: XCTestCase {
         let store = GymStore(directory: directory)
         store.startWorkout(routine: store.data.routines[0])
         var workout = try XCTUnwrap(store.data.draft)
-        workout.exercises[0].sets[0].completed = true
+        workout.exercises[0].sets[0].setType = "failure"
+        let before = store.data
+        let stored = try Data(contentsOf: directory.appendingPathComponent("gym-data.json"))
         let invalid = Routine(name: "", exercises: workout.exercises)
         XCTAssertThrowsError(try store.finishWorkout(workout, routine: invalid))
-        XCTAssertNotNil(store.data.draft)
-        XCTAssertTrue(store.data.sessions.isEmpty)
+        XCTAssertEqual(store.data, before)
+        XCTAssertEqual(try Data(contentsOf: directory.appendingPathComponent("gym-data.json")), stored)
         let routine = Routine(name: "Sesión guardada", exercises: workout.exercises)
         try store.finishWorkout(workout, routine: routine)
         let reopened = GymStore(directory: directory)
@@ -190,7 +260,7 @@ final class GymStoreTests: XCTestCase {
     @MainActor
     func testNewRoutineWorkoutStartsWithOneFreshSetAndPreservesTemplate() throws {
         let store = GymStore(directory: try temporaryDirectory())
-        var first = WorkoutSet(reps: 8, weightKg: 45, rpe: 8, distanceKm: 1.2, durationSeconds: 120, completed: true)
+        var first = WorkoutSet(reps: 8, weightKg: 45, setType: "failure", rpe: 8, distanceKm: 1.2, durationSeconds: 120, completed: true)
         first.importKey = "legacy-import"
         let second = WorkoutSet(reps: 6, weightKg: 50, durationSeconds: 100, completed: true)
         let block = WorkoutExercise(exerciseId: store.data.exercises[0].id, restSeconds: 90, sets: [first, second])
@@ -204,6 +274,7 @@ final class GymStoreTests: XCTestCase {
         XCTAssertEqual(created.reps, 8)
         XCTAssertEqual(created.rpe, 8)
         XCTAssertEqual(created.distanceKm, 1.2)
+        XCTAssertEqual(created.setType, "normal")
         XCTAssertNotEqual(created.id, first.id)
         XCTAssertNil(created.importKey)
         XCTAssertNil(created.durationSeconds)
@@ -218,7 +289,7 @@ final class GymStoreTests: XCTestCase {
     func testRepeatedWorkoutStartsOneSetAndDoesNotAlterHistory() throws {
         let directory = try temporaryDirectory()
         let store = GymStore(directory: directory)
-        let first = WorkoutSet(reps: 0, weightKg: 20, durationSeconds: 30, completed: true)
+        let first = WorkoutSet(reps: 0, weightKg: 20, setType: "failure", durationSeconds: 30, completed: true)
         let second = WorkoutSet(reps: 8, weightKg: 40, durationSeconds: 90, completed: true)
         let original = WorkoutSession(importKey: "imported-session", title: "Histórico",
             startedAt: Date(timeIntervalSince1970: 1_800_000_000), endedAt: Date(timeIntervalSince1970: 1_800_003_600),
@@ -232,6 +303,7 @@ final class GymStoreTests: XCTestCase {
         XCTAssertEqual(draft.exercises[0].sets.count, 1)
         XCTAssertNil(draft.exercises[0].sets[0].durationSeconds)
         XCTAssertFalse(draft.exercises[0].sets[0].completed)
+        XCTAssertEqual(draft.exercises[0].sets[0].setType, "normal")
         XCTAssertEqual(draft.exercises[0].sets[0].reps, first.reps)
         XCTAssertEqual(store.data.sessions, [original])
         let reopened = GymStore(directory: directory)
@@ -243,8 +315,8 @@ final class GymStoreTests: XCTestCase {
     func testResumeKeepsLegacyDraftAllSetsDatesAndTimes() throws {
         let directory = try temporaryDirectory()
         let store = GymStore(directory: directory)
-        let sets = [WorkoutSet(reps: 10, weightKg: 50, durationSeconds: 40, completed: true),
-                    WorkoutSet(reps: 8, weightKg: 60, durationSeconds: 50)]
+        let sets = [WorkoutSet(reps: 10, weightKg: 50, setType: "failure", durationSeconds: 40, completed: true),
+                    WorkoutSet(reps: 8, weightKg: 60, setType: "failure", durationSeconds: 50)]
         let original = WorkoutSession(title: "Borrador previo", startedAt: Date(timeIntervalSince1970: 1_800_000_000),
             exercises: [WorkoutExercise(exerciseId: store.data.exercises[0].id, restSeconds: 105, sets: sets)])
         store.mutate { $0.draft = original }
@@ -282,7 +354,6 @@ final class GymStoreTests: XCTestCase {
         let store = GymStore(directory: try temporaryDirectory())
         store.startWorkout(routine: store.data.routines[0])
         var draft = try XCTUnwrap(store.data.draft)
-        draft.exercises[0].sets[0].completed = true
         try store.finishWorkout(draft)
         XCTAssertNil(store.data.sessions[0].endedAt)
         XCTAssertNil(store.data.sessions[0].exercises[0].sets[0].durationSeconds)
@@ -324,5 +395,21 @@ final class GymStoreTests: XCTestCase {
         store.mutate { $0.sessions = sessions }
         XCTAssertEqual(store.previousSet(exerciseId: store.data.exercises[0].id, index: 0)?.weightKg, 60)
         XCTAssertEqual(WorkoutHistory.recentFirst(store.data.sessions).first?.id, sessions[1].id)
+    }
+
+    @MainActor
+    func testPreviousSetsUseAllRowsInOldMixedFlagHistory() throws {
+        let directory = try temporaryDirectory()
+        let store = GymStore(directory: directory)
+        let exerciseID = store.data.exercises[0].id
+        let workout = WorkoutSession(workoutDate: "2026-10-06", exercises: [WorkoutExercise(exerciseId: exerciseID,
+            sets: [WorkoutSet(reps: 8, weightKg: 50), WorkoutSet(reps: 6, weightKg: 60, setType: "failure", completed: true)])])
+        store.mutate { $0.sessions = [workout] }
+        let reopened = GymStore(directory: directory)
+        XCTAssertEqual(reopened.previousSet(exerciseId: exerciseID, index: 0)?.weightKg, 50)
+        XCTAssertEqual(reopened.previousSet(exerciseId: exerciseID, index: 1)?.setType, "failure")
+        XCTAssertNil(reopened.previousSet(exerciseId: exerciseID, index: 2))
+        XCTAssertNil(reopened.previousSet(exerciseId: exerciseID, index: -1))
+        XCTAssertEqual(reopened.data.sessions, [workout])
     }
 }

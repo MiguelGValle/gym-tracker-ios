@@ -9,7 +9,7 @@ GymStore: @MainActor final class GymStore: ObservableObject.
 - func mutate(_ change: (inout GymData) -> Void) // transactional: validate/write atomically then publish; error shown if persistence fails
 - func startWorkout(routine: Routine? = nil) // leaves existing draft intact; new workout starts one fresh set per exercise
 - func repeatWorkout(_ original: WorkoutSession) // leaves existing draft intact; copies one fresh set per exercise and today's date
-- func finishWorkout(_ workout: WorkoutSession, routine: Routine? = nil) throws // validates, keeps completed sets only, persists atomically with optional routine, clears draft
+- func finishWorkout(_ workout: WorkoutSession, routine: Routine? = nil) throws // validates and persists every present set atomically with optional routine; clears the draft only on success
 - func previousSet(exerciseId: String, index: Int) -> WorkoutSet?
 - func exerciseName(_ id: String) -> String
 - var weightUnit: String; func displayWeight(_ kg: Double) -> Double; func kgWeight(_ displayed: Double) -> Double
@@ -19,6 +19,8 @@ GymStore: @MainActor final class GymStore: ObservableObject.
 - func previewHevyCSV(_ text: String) throws -> ImportPreview
 - func importHevy(_ preview: ImportPreview) throws
 ImportPreview: sessions: [WorkoutSession], exercises: [Exercise], warnings: [String], summary: String.
+
+The completed flag is retained only for backup compatibility. Counts, volume, progress and CSV export include every present set. The optional failure checkbox records setType=failure and never decides whether a set is saved. New sets reset failure to normal while preserving warmup/dropset and training values. Failed saves retain both history and draft.
 
 Root implements shared UI Theme.accent/background/surface; GymCard<Content>(@ViewBuilder content: () -> Content); MetricTile(title: String, value: String, symbol: String); EmptyState(title: String, message: String, symbol: String); ExercisePicker(onSelect: (Exercise) -> Void), dismisses after single choice; DecimalField(title: String, value: Binding<Double>); optional fields implement locally as needed.
 

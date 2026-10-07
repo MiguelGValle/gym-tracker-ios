@@ -73,12 +73,14 @@ final class GymStore: ObservableObject {
 
     func finishWorkout(_ workout: WorkoutSession, routine: Routine? = nil) throws {
         var finished = workout
-        finished.exercises = finished.exercises.compactMap { original in
+        finished.exercises = finished.exercises.map { original in
             var block = original
-            block.sets.removeAll { !$0.completed }
-            return block.sets.isEmpty ? nil : block
+            // Older versions require this compatibility flag when reading saved sessions.
+            // Every present series is saved, independently of its old completion flag.
+            for index in block.sets.indices { block.sets[index].completed = true }
+            return block
         }
-        guard finished.completedSets > 0 else { throw GymError.invalid("Completa al menos una serie antes de terminar.") }
+        guard finished.completedSets > 0 else { throw GymError.invalid("Añade al menos una serie antes de guardar.") }
         var candidate = data
         if let index = candidate.sessions.firstIndex(where: { $0.id == finished.id }) { candidate.sessions[index] = finished }
         else { candidate.sessions.append(finished) }
@@ -94,7 +96,7 @@ final class GymStore: ObservableObject {
         guard index >= 0 else { return nil }
         for session in WorkoutHistory.recentFirst(data.sessions) {
             for block in session.exercises where block.exerciseId == exerciseId {
-                let sets = block.sets.filter(\.completed)
+                let sets = block.sets
                 if sets.indices.contains(index) { return sets[index] }
             }
         }
@@ -247,7 +249,6 @@ enum GymValidation {
                       set.distanceKm.map({ $0.isFinite && (0...1_000_000).contains($0) }) ?? true,
                       set.legacyRestSeconds.map({ (0...86400).contains($0) }) ?? true,
                       set.durationSeconds.map({ (0...31_536_000).contains($0) }) ?? true else { throw GymError.invalid("Repeticiones, carga, RPE, distancia o duración inválidas.") }
-                if set.completed && set.reps == 0 && (set.distanceKm ?? 0) == 0 && (set.durationSeconds ?? 0) == 0 { throw GymError.invalid("Una serie completada necesita repeticiones, distancia o duración.") }
             }
         }
     }

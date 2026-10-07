@@ -56,7 +56,7 @@ def generate():
                 "PRODUCT_NAME": "$(TARGET_NAME)",
                 "PRODUCT_BUNDLE_IDENTIFIER": "com.codex.gymtracker" + ("" if target == "GymTracker" else "." + target),
                 "SWIFT_VERSION": "5.0", "IPHONEOS_DEPLOYMENT_TARGET": "16.0", "TARGETED_DEVICE_FAMILY": "1",
-                "CODE_SIGN_STYLE": "Automatic", "CURRENT_PROJECT_VERSION": "3", "MARKETING_VERSION": "0.3.0",
+                "CODE_SIGN_STYLE": "Automatic", "CURRENT_PROJECT_VERSION": "4", "MARKETING_VERSION": "0.3.1",
                 "GENERATE_INFOPLIST_FILE": "YES", "SWIFT_STRICT_CONCURRENCY": "targeted",
             }
             if target == "GymTracker":

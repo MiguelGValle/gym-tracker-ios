@@ -69,7 +69,10 @@ enum HevyCSV {
                 let rpe = try number("rpe")
                 guard weight.isFinite, distance?.isFinite ?? true, (rpe ?? 0) <= 10 else { throw GymError.invalid("carga, distancia o RPE fuera de rango") }
                 guard reps <= 1_000_000, weight <= 1_000_000, (distance ?? 0) <= 1_000_000, (seconds ?? 0) <= 31_536_000 else { throw GymError.invalid("las métricas exceden el intervalo admitido") }
-                guard reps > 0 || (distance ?? 0) > 0 || (seconds ?? 0) > 0 else { throw GymError.invalid("la serie necesita repeticiones, distancia o duración") }
+                let ownExportRow = !value("session_id").isEmpty && !value("set_id").isEmpty && !value("exercise_block_id").isEmpty
+                // A locally saved zero-rep series must survive our own CSV round trip.
+                // Normal Hevy rows keep the existing nonempty-metrics requirement.
+                guard reps > 0 || (distance ?? 0) > 0 || (seconds ?? 0) > 0 || ownExportRow else { throw GymError.invalid("la serie necesita repeticiones, distancia o duración") }
                 guard let type = setType(value("set_type")) else { throw GymError.invalid("set_type desconocido: \(value("set_type"))") }
                 let title = value("title").isEmpty ? "Entrenamiento importado" : value("title")
                 let canonicalStart = canonicalLocalDate(start, source: value("start_time"))
@@ -131,7 +134,7 @@ enum HevyCSV {
         var rows = ["title,start_time,end_time,description,exercise_title,exercise_notes,set_index,set_type,weight_kg,reps,rpe,distance_km,duration_seconds,superset_id,session_id,workout_date,set_id,exercise_block_id"]
         for workout in sessions.sorted(by: { $0.date < $1.date }) {
             for block in workout.exercises {
-                for (index, set) in block.sets.enumerated() where set.completed {
+                for (index, set) in block.sets.enumerated() {
                     let name = block.exerciseName.isEmpty ? catalog.first(where: { $0.id == block.exerciseId })?.name ?? "Ejercicio" : block.exerciseName
                     let fields = [workout.title, iso.string(from: workout.startedAt), workout.endedAt.map { iso.string(from: $0) } ?? "", workout.notes,
                                   name, block.notes, String(index), set.setType, String(set.weightKg), String(set.reps),

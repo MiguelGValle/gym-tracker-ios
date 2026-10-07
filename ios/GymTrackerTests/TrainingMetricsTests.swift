@@ -48,13 +48,13 @@ final class TrainingMetricsTests: XCTestCase {
         XCTAssertEqual(points[0].value, 1500)
     }
 
-    func testWarmupsAndIncompleteSetsDoNotEnterRecordsOrWorkVolume() {
+    func testWarmupsAreExcludedAndOldCompletionFlagsDoNotLimitWorkVolumeOrRecords() {
         let sessions = [session(on: date(2026, 2, 1)), session(on: date(2026, 2, 1), weight: 900, type: "warmup"),
                         session(on: date(2026, 2, 1), weight: 800, completed: false)]
-        XCTAssertEqual(TrainingMetrics.workingEntries(sessions).count, 1)
-        XCTAssertEqual(TrainingMetrics.dailyVolume(sessions, calendar: calendar).first?.value, 1000)
+        XCTAssertEqual(TrainingMetrics.workingEntries(sessions).count, 2)
+        XCTAssertEqual(TrainingMetrics.dailyVolume(sessions, calendar: calendar).first?.value, 9000)
         let history = TrainingMetrics.oneRMHistory(TrainingMetrics.workingEntries(sessions), formula: .epley, calendar: calendar)
-        XCTAssertEqual(history.first!.value, 133.333333, accuracy: 0.0001)
+        XCTAssertEqual(history.first!.value, 1066.666667, accuracy: 0.0001)
     }
 
     func testWeeklyStreakCrossesYearAndAllowsUnfinishedCurrentWeek() {
@@ -73,15 +73,50 @@ final class TrainingMetricsTests: XCTestCase {
         XCTAssertEqual(streak.longest, 2)
     }
 
-    func testMuscleDistributionUsesPercentagesOfCompletedWorkingSets() {
+    func testMuscleDistributionUsesPercentagesOfAllSavedWorkingSets() {
         var exercise = Exercise()
         exercise.id = "bench"
         exercise.muscles = ["Pecho": 60, "Tríceps": 40]
         let sessions = [session(on: date(2026, 2, 1)), session(on: date(2026, 2, 1), type: "warmup"),
                         session(on: date(2026, 2, 1), completed: false)]
         let muscles = TrainingMetrics.muscleDistribution(sessions, exercises: [exercise])
-        XCTAssertEqual(muscles.first { $0.name == "Pecho" }!.sets, 0.6, accuracy: 0.0001)
-        XCTAssertEqual(muscles.first { $0.name == "Tríceps" }!.sets, 0.4, accuracy: 0.0001)
+        XCTAssertEqual(muscles.first { $0.name == "Pecho" }!.sets, 1.2, accuracy: 0.0001)
+        XCTAssertEqual(muscles.first { $0.name == "Tríceps" }!.sets, 0.8, accuracy: 0.0001)
+    }
+
+    func testMuscleHeatmapComparesEquivalentSetsInsteadOfWeightOrReps() {
+        var bench = Exercise()
+        bench.id = "bench"
+        bench.muscles = ["Pectoral esternal": 60, "Triceps lateral": 40]
+        let sessions = [session(on: date(2026, 2, 1), weight: 20, reps: 2),
+                        session(on: date(2026, 2, 2), weight: 120, reps: 12),
+                        session(on: date(2026, 2, 3), weight: 900, type: "warmup"),
+                        session(on: date(2026, 2, 4), completed: false)]
+        let totals = Dictionary(TrainingMetrics.muscleDistribution(sessions, exercises: [bench])
+            .map { ($0.name, $0.sets) }, uniquingKeysWith: +)
+        let scale = MuscleHeatmapScale(totals: totals, supportedMuscles: ["Pectoral esternal", "Triceps lateral", "Gemelos"])
+        XCTAssertEqual(scale.maximum, 1.8, accuracy: 0.0001)
+        XCTAssertEqual(scale.intensity(for: ["Pectoral esternal"]), 1)
+        XCTAssertEqual(scale.intensity(for: ["Triceps lateral"]), 2.0 / 3, accuracy: 0.0001)
+        XCTAssertEqual(scale.intensity(for: ["Gemelos"]), 0)
+    }
+
+    func testMuscleHeatmapGroupsAverageMusclesAndKeepCustomNamesOutsideScale() {
+        let totals = ["Triceps lateral": 3.0, "Triceps medial": 1, "Pectoral esternal": 5, "Personalizado": 50]
+        let scale = MuscleHeatmapScale(totals: totals, supportedMuscles: ["Triceps lateral", "Triceps medial", "Pectoral esternal"])
+        XCTAssertEqual(scale.maximum, 5)
+        XCTAssertEqual(scale.equivalentSets(for: ["Triceps lateral", "Triceps medial"]), 2)
+        XCTAssertEqual(scale.intensity(for: ["Triceps lateral", "Triceps medial"]), 0.4, accuracy: 0.0001)
+        XCTAssertEqual(scale.equivalentSets(for: ["Triceps lateral", "Sin datos"]), 1.5)
+        XCTAssertEqual(scale.totals["Personalizado"], 50)
+    }
+
+    func testMuscleHeatmapWithNoMappedWorkKeepsNeutralValues() {
+        let scale = MuscleHeatmapScale(totals: ["Personalizado": 4], supportedMuscles: ["Gemelos", "Oblicuos"])
+        XCTAssertEqual(scale.maximum, 0)
+        XCTAssertEqual(scale.intensity(for: ["Gemelos"]), 0)
+        XCTAssertEqual(scale.equivalentSets(for: ["Oblicuos"]), 0)
+        XCTAssertEqual(scale.equivalentSets(for: []), 0)
     }
 
     func testEmptyMeasurementValuesKeepExistingFields() {

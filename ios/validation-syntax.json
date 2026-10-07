@@ -1,6 +1,6 @@
 {
   "parser": "tree-sitter-swift",
-  "swiftFiles": 18,
+  "swiftFiles": 20,
   "errors": [],
   "typeChecked": false,
   "xcodeCompiled": false

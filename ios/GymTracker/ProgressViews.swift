@@ -37,7 +37,7 @@ enum TrainingMetrics {
     static func workingEntries(_ sessions: [WorkoutSession]) -> [PerformanceEntry] {
         sessions.flatMap { session in
             session.exercises.flatMap { exercise in
-                exercise.sets.filter { $0.completed && $0.setType.lowercased() != "warmup" }.map {
+                exercise.sets.filter { $0.setType.lowercased() != "warmup" }.map {
                     PerformanceEntry(sessionID: session.id, date: session.date,
                                      exerciseID: exercise.exerciseId, exerciseName: exercise.exerciseName, set: $0)
                 }
@@ -136,22 +136,28 @@ struct ProgressViewScreen: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 20) {
                     Picker("Periodo", selection: $period) {
                         ForEach(ProgressPeriod.allCases) { Text($0.rawValue).tag($0) }
-                    }.pickerStyle(.segmented)
+                    }.pickerStyle(.segmented).padding(.bottom, 4)
                     summary
                     if sessions.isEmpty {
                         EmptyState(title: "Tu progreso empieza aquí", message: "Finaliza un entrenamiento para ver tus estadísticas en este periodo.", symbol: "chart.xyaxis.line")
-                    } else {
+                    }
+                    MuscleHeatmapCard(
+                        totals: Dictionary(TrainingMetrics.muscleDistribution(sessions, exercises: store.data.exercises)
+                            .map { ($0.name, $0.sets) }, uniquingKeysWith: +),
+                        workingSetCount: entries.count
+                    )
+                    if !sessions.isEmpty {
                         volumeCard
                         consistencyCard
                         if !exerciseIDs.isEmpty { recordsCard }
                         muscleCard
                     }
-                }.padding()
+                }.padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 28)
             }
-            .background(Theme.background)
+            .gymScreenStyle()
             .navigationTitle("Progreso")
         }
     }
@@ -168,13 +174,13 @@ struct ProgressViewScreen: View {
     private var volumeCard: some View {
         GymCard {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Volumen por día").font(.headline)
+                Text("Volumen por día").font(.system(.headline, design: .rounded))
                 Chart(TrainingMetrics.dailyVolume(sessions)) { point in
                     BarMark(x: .value("Fecha", point.date, unit: .day), y: .value(store.weightUnit, store.displayWeight(point.value)))
                         .foregroundStyle(Theme.accent)
                         .accessibilityLabel(point.date.formatted(date: .abbreviated, time: .omitted))
                         .accessibilityValue("\(store.displayWeight(point.value).gymNumber) \(store.weightUnit)")
-                }.frame(height: 200)
+                }.frame(height: 200).padding(.top, 8)
                 Text("Peso × repeticiones de las series completadas. No incluye calentamientos.")
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -185,11 +191,11 @@ struct ProgressViewScreen: View {
         let streak = TrainingMetrics.weeklyStreak(store.data.sessions)
         return GymCard {
             VStack(alignment: .leading, spacing: 12) {
-                Label("Constancia", systemImage: "flame.fill").font(.headline)
+                Label("Constancia", systemImage: "flame.fill").font(.system(.headline, design: .rounded))
                 HStack {
-                    VStack(alignment: .leading) { Text("\(streak.current)").font(.title.bold()); Text("semanas actuales").font(.caption) }
+                    VStack(alignment: .leading, spacing: 6) { Text("\(streak.current)").font(.system(.largeTitle, design: .rounded).weight(.bold)).monospacedDigit(); Text("semanas actuales").font(.caption).foregroundStyle(.secondary) }
                     Spacer()
-                    VStack(alignment: .trailing) { Text("\(streak.longest)").font(.title.bold()); Text("mejor racha").font(.caption) }
+                    VStack(alignment: .trailing, spacing: 6) { Text("\(streak.longest)").font(.system(.largeTitle, design: .rounded).weight(.bold)).monospacedDigit(); Text("mejor racha").font(.caption).foregroundStyle(.secondary) }
                 }
                 Text("Historial completo · al menos un entrenamiento por semana, de lunes a domingo.")
                     .font(.caption).foregroundStyle(.secondary)
@@ -200,7 +206,7 @@ struct ProgressViewScreen: View {
     private var recordsCard: some View {
         GymCard {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Marcas por ejercicio").font(.headline)
+                Text("Marcas por ejercicio").font(.system(.headline, design: .rounded))
                 Picker("Ejercicio", selection: Binding(get: { activeExercise }, set: { selectedExercise = $0 })) {
                     ForEach(exerciseIDs, id: \.self) { id in Text(exerciseName(id)).tag(id) }
                 }.tint(Theme.accent)
@@ -239,8 +245,8 @@ struct ProgressViewScreen: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Text("\(value.gymNumber) \(unit)").font(.subheadline.bold()).multilineTextAlignment(.trailing)
-            }
+                Text("\(value.gymNumber) \(unit)").font(.system(.subheadline, design: .rounded).weight(.bold)).monospacedDigit().multilineTextAlignment(.trailing)
+            }.padding(.vertical, 4)
         }
     }
 
@@ -253,7 +259,7 @@ struct ProgressViewScreen: View {
         let muscles = TrainingMetrics.muscleDistribution(sessions, exercises: store.data.exercises)
         return GymCard {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Distribución muscular").font(.headline)
+                Text("Distribución muscular").font(.system(.headline, design: .rounded))
                 if muscles.isEmpty {
                     Text("Añade porcentajes musculares a tus ejercicios para ver la distribución.").foregroundStyle(.secondary)
                 } else {

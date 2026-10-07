@@ -21,6 +21,64 @@ final class CoreTests: XCTestCase {
         XCTAssertTrue(previous.completed)
     }
 
+    func testNewSetsDoNotInheritFailureAndKeepOtherSetTypes() {
+        for type in ["normal", "warmup", "failure", "dropset"] {
+            let original = WorkoutSet(reps: 6, weightKg: 65, setType: type, completed: true)
+            let added = WorkoutTemplates.nextSet(from: original)
+            XCTAssertEqual(added.setType, type == "failure" ? "normal" : type)
+            XCTAssertEqual(added.reps, original.reps)
+            XCTAssertEqual(added.weightKg, original.weightKg)
+            XCTAssertNotEqual(added.id, original.id)
+            XCTAssertFalse(added.completed)
+            XCTAssertEqual(original.setType, type)
+        }
+        let source = WorkoutExercise(exerciseId: "press_banca_barra", sets: [
+            WorkoutSet(setType: "failure"), WorkoutSet(setType: "warmup"), WorkoutSet(setType: "dropset")])
+        let fresh = WorkoutTemplates.exercises(from: [source])[0]
+        XCTAssertEqual(fresh.sets.map(\.setType), ["normal", "warmup", "dropset"])
+        XCTAssertEqual(WorkoutTemplates.exercises(from: [source], singleSet: true)[0].sets[0].setType, "normal")
+        XCTAssertEqual(source.sets.map(\.setType), ["failure", "warmup", "dropset"])
+    }
+
+    func testSessionCountsAndVolumeIncludeAllOldCompletionFlags() {
+        let sets = [WorkoutSet(reps: 10, weightKg: 50, completed: true),
+                    WorkoutSet(reps: 8, weightKg: 60, setType: "failure"),
+                    WorkoutSet(reps: 5, weightKg: 80, setType: "warmup"),
+                    WorkoutSet(reps: 6, weightKg: 40, setType: "dropset")]
+        let session = WorkoutSession(exercises: [WorkoutExercise(exerciseId: "press_banca_barra", sets: sets)])
+        XCTAssertEqual(session.completedSets, 4)
+        XCTAssertEqual(session.volume, 1220)
+        XCTAssertEqual(session.exercises[0].sets.map(\.completed), [true, false, false, false])
+    }
+
+    func testOwnCSVAndBackupKeepAllOldFlagsAndFailureTypes() throws {
+        let sets = [WorkoutSet(reps: 8, weightKg: 50),
+                    WorkoutSet(reps: 6, weightKg: 55, setType: "failure", completed: true),
+                    WorkoutSet(reps: 4, weightKg: 40, setType: "dropset"),
+                    WorkoutSet(reps: 10, weightKg: 20, setType: "warmup"),
+                    WorkoutSet(reps: 0, weightKg: 0, setType: "failure")]
+        let session = WorkoutSession(title: "Todas", workoutDate: "2026-10-06", exercises: [
+            WorkoutExercise(exerciseId: ExerciseSeed.all[0].id, exerciseName: ExerciseSeed.all[0].name, sets: Array(sets.prefix(2))),
+            WorkoutExercise(exerciseId: ExerciseSeed.all[1].id, exerciseName: ExerciseSeed.all[1].name, sets: Array(sets.suffix(3)))])
+        var data = ExerciseSeed.initialData
+        data.sessions = [session]
+        let restored = try BackupCodec.decode(BackupCodec.encode(data))
+        XCTAssertEqual(restored.sessions, [session])
+        XCTAssertEqual(restored.sessions[0].exercises.flatMap(\.sets).map(\.completed), [false, true, false, false, false])
+        let preview = try HevyCSV.preview(HevyCSV.export(data.sessions, catalog: data.exercises), catalog: data.exercises)
+        XCTAssertTrue(preview.warnings.isEmpty)
+        XCTAssertEqual(preview.sessions.count, 1)
+        let exportedSets = preview.sessions[0].exercises.flatMap(\.sets)
+        XCTAssertEqual(exportedSets.map(\.id), sets.map(\.id))
+        XCTAssertEqual(exportedSets.map(\.setType), sets.map(\.setType))
+        XCTAssertEqual(exportedSets.map(\.reps), sets.map(\.reps))
+        XCTAssertEqual(exportedSets.map(\.weightKg), sets.map(\.weightKg))
+        XCTAssertEqual(preview.sessions[0].completedSets, 5)
+        let normalHevyZeroRow = try HevyCSV.preview("title,start_time,exercise_title,set_index,reps,weight_kg\nA,2026-10-06T09:00:00,Press banca barra,0,0,0", catalog: data.exercises)
+        XCTAssertTrue(normalHevyZeroRow.sessions.isEmpty)
+        XCTAssertEqual(normalHevyZeroRow.warnings.count, 1)
+    }
+
     func testNewExerciseAndEmptyTemplateStartWithOneSet() {
         let newExercise = WorkoutExercise(exerciseId: "press_banca_barra")
         XCTAssertEqual(newExercise.sets.count, 1)
