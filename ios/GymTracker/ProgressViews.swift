@@ -37,8 +37,8 @@ enum TrainingMetrics {
     static func workingEntries(_ sessions: [WorkoutSession]) -> [PerformanceEntry] {
         sessions.flatMap { session in
             session.exercises.flatMap { exercise in
-                exercise.sets.filter { $0.completed && $0.setType.lowercased() != "warmup" }.map {
-                    PerformanceEntry(sessionID: session.id, date: session.startedAt,
+                exercise.sets.filter { $0.setType.lowercased() != "warmup" }.map {
+                    PerformanceEntry(sessionID: session.id, date: session.date,
                                      exerciseID: exercise.exerciseId, exerciseName: exercise.exerciseName, set: $0)
                 }
             }
@@ -46,7 +46,7 @@ enum TrainingMetrics {
     }
 
     static func dailyVolume(_ sessions: [WorkoutSession], calendar: Calendar = .current) -> [TrainingPoint] {
-        Dictionary(grouping: sessions, by: { calendar.startOfDay(for: $0.startedAt) })
+        Dictionary(grouping: sessions, by: { calendar.startOfDay(for: $0.date) })
             .map { TrainingPoint(date: $0.key, value: $0.value.reduce(0) { $0 + $1.volume }) }
             .sorted { $0.date < $1.date }
     }
@@ -68,7 +68,7 @@ enum TrainingMetrics {
             return calendar.date(byAdding: .day, value: -offset, to: day) ?? day
         }
         let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: today)) ?? today
-        let weeks = Set(sessions.filter { $0.startedAt < tomorrow }.map { monday($0.startedAt) })
+        let weeks = Set(sessions.filter { $0.date < tomorrow }.map { monday($0.date) })
         var cursor = monday(today)
         if !weeks.contains(cursor) { cursor = calendar.date(byAdding: .day, value: -7, to: cursor) ?? cursor }
         var current = 0
@@ -125,7 +125,7 @@ struct ProgressViewScreen: View {
     @State private var formula = OneRMFormula.epley
     @State private var selectedExercise = ""
 
-    private var sessions: [WorkoutSession] { store.data.sessions.filter { period.includes($0.startedAt) } }
+    private var sessions: [WorkoutSession] { store.data.sessions.filter { period.includes($0.date) } }
     private var entries: [PerformanceEntry] { TrainingMetrics.workingEntries(sessions) }
     private var exerciseIDs: [String] {
         Set(entries.map(\.exerciseID)).sorted { store.exerciseName($0).localizedStandardCompare(store.exerciseName($1)) == .orderedAscending }
@@ -136,22 +136,28 @@ struct ProgressViewScreen: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 20) {
                     Picker("Periodo", selection: $period) {
                         ForEach(ProgressPeriod.allCases) { Text($0.rawValue).tag($0) }
-                    }.pickerStyle(.segmented)
+                    }.pickerStyle(.segmented).padding(.bottom, 4)
                     summary
                     if sessions.isEmpty {
                         EmptyState(title: "Tu progreso empieza aquí", message: "Finaliza un entrenamiento para ver tus estadísticas en este periodo.", symbol: "chart.xyaxis.line")
-                    } else {
+                    }
+                    MuscleHeatmapCard(
+                        totals: Dictionary(TrainingMetrics.muscleDistribution(sessions, exercises: store.data.exercises)
+                            .map { ($0.name, $0.sets) }, uniquingKeysWith: +),
+                        workingSetCount: entries.count
+                    )
+                    if !sessions.isEmpty {
                         volumeCard
                         consistencyCard
                         if !exerciseIDs.isEmpty { recordsCard }
                         muscleCard
                     }
-                }.padding()
+                }.padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 28)
             }
-            .background(Theme.background)
+            .gymScreenStyle()
             .navigationTitle("Progreso")
         }
     }
@@ -159,7 +165,7 @@ struct ProgressViewScreen: View {
     private var summary: some View {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
             MetricTile(title: "Entrenamientos", value: "\(sessions.count)", symbol: "dumbbell.fill")
-            MetricTile(title: "Días activos", value: "\(Set(sessions.map { GymDate.dayKey($0.startedAt) }).count)", symbol: "calendar")
+            MetricTile(title: "Días activos", value: "\(Set(sessions.map { GymDate.dayKey($0.date) }).count)", symbol: "calendar")
             MetricTile(title: "Series efectivas", value: "\(entries.count)", symbol: "checkmark.circle")
             MetricTile(title: "Volumen · \(store.weightUnit)", value: store.displayWeight(sessions.reduce(0) { $0 + $1.volume }).gymNumber, symbol: "scalemass")
         }
@@ -168,13 +174,13 @@ struct ProgressViewScreen: View {
     private var volumeCard: some View {
         GymCard {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Volumen por día").font(.headline)
+                Text("Volumen por día").font(.system(.headline, design: .rounded))
                 Chart(TrainingMetrics.dailyVolume(sessions)) { point in
                     BarMark(x: .value("Fecha", point.date, unit: .day), y: .value(store.weightUnit, store.displayWeight(point.value)))
                         .foregroundStyle(Theme.accent)
                         .accessibilityLabel(point.date.formatted(date: .abbreviated, time: .omitted))
                         .accessibilityValue("\(store.displayWeight(point.value).gymNumber) \(store.weightUnit)")
-                }.frame(height: 200)
+                }.frame(height: 200).padding(.top, 8)
                 Text("Peso × repeticiones de las series completadas. No incluye calentamientos.")
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -185,11 +191,11 @@ struct ProgressViewScreen: View {
         let streak = TrainingMetrics.weeklyStreak(store.data.sessions)
         return GymCard {
             VStack(alignment: .leading, spacing: 12) {
-                Label("Constancia", systemImage: "flame.fill").font(.headline)
+                Label("Constancia", systemImage: "flame.fill").font(.system(.headline, design: .rounded))
                 HStack {
-                    VStack(alignment: .leading) { Text("\(streak.current)").font(.title.bold()); Text("semanas actuales").font(.caption) }
+                    VStack(alignment: .leading, spacing: 6) { Text("\(streak.current)").font(.system(.largeTitle, design: .rounded).weight(.bold)).monospacedDigit(); Text("semanas actuales").font(.caption).foregroundStyle(.secondary) }
                     Spacer()
-                    VStack(alignment: .trailing) { Text("\(streak.longest)").font(.title.bold()); Text("mejor racha").font(.caption) }
+                    VStack(alignment: .trailing, spacing: 6) { Text("\(streak.longest)").font(.system(.largeTitle, design: .rounded).weight(.bold)).monospacedDigit(); Text("mejor racha").font(.caption).foregroundStyle(.secondary) }
                 }
                 Text("Historial completo · al menos un entrenamiento por semana, de lunes a domingo.")
                     .font(.caption).foregroundStyle(.secondary)
@@ -200,7 +206,7 @@ struct ProgressViewScreen: View {
     private var recordsCard: some View {
         GymCard {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Marcas por ejercicio").font(.headline)
+                Text("Marcas por ejercicio").font(.system(.headline, design: .rounded))
                 Picker("Ejercicio", selection: Binding(get: { activeExercise }, set: { selectedExercise = $0 })) {
                     ForEach(exerciseIDs, id: \.self) { id in Text(exerciseName(id)).tag(id) }
                 }.tint(Theme.accent)
@@ -221,7 +227,6 @@ struct ProgressViewScreen: View {
                 recordRow("Más repeticiones", metric: { Double($0.reps) }, unit: "reps")
                 recordRow("Volumen de una serie", metric: { $0.volume }, unit: store.weightUnit, weight: true)
                 recordRow("Mayor distancia", metric: { $0.distanceKm ?? 0 }, unit: "km")
-                recordRow("Mayor duración", metric: { Double($0.durationSeconds ?? 0) }, unit: "s")
                 Text("Marcas del periodo elegido, sin calentamientos. El 1RM es una estimación matemática; pierde precisión con muchas repeticiones.")
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -240,8 +245,8 @@ struct ProgressViewScreen: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Text("\(value.gymNumber) \(unit)").font(.subheadline.bold()).multilineTextAlignment(.trailing)
-            }
+                Text("\(value.gymNumber) \(unit)").font(.system(.subheadline, design: .rounded).weight(.bold)).monospacedDigit().multilineTextAlignment(.trailing)
+            }.padding(.vertical, 4)
         }
     }
 
@@ -254,7 +259,7 @@ struct ProgressViewScreen: View {
         let muscles = TrainingMetrics.muscleDistribution(sessions, exercises: store.data.exercises)
         return GymCard {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Distribución muscular").font(.headline)
+                Text("Distribución muscular").font(.system(.headline, design: .rounded))
                 if muscles.isEmpty {
                     Text("Añade porcentajes musculares a tus ejercicios para ver la distribución.").foregroundStyle(.secondary)
                 } else {

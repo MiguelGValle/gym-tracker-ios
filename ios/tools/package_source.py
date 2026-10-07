@@ -12,6 +12,7 @@ paths = [p for p in (root / "ios").rglob("*") if p.is_file()
          and not any(part in {"build", "__pycache__", "xcuserdata", ".DS_Store"} for part in p.relative_to(root / "ios").parts)
          and p.suffix not in {".ipa", ".p12", ".mobileprovision", ".p8", ".pyc"}]
 paths += [root / ".github/workflows/ios.yml", root / ".gitattributes"]
+paths += [root / "docs/MAPA_MUSCULAR.md", root / "docs/muscle-map.json", root / "tools/generate_muscle_map.py"]
 manifest = {}
 with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as package:
     for path in sorted(paths):

@@ -35,21 +35,23 @@ struct ProfileView: View {
             Form {
                 Section {
                     HStack(spacing: 16) {
-                        Image(systemName: "person.crop.circle.fill").font(.system(size: 45)).foregroundStyle(Theme.accent)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Tu espacio personal").font(.headline)
+                        Image(systemName: "person.crop.circle.fill").font(.system(size: 32, weight: .medium)).foregroundStyle(Theme.accent)
+                            .frame(width: 60, height: 60)
+                            .background(Theme.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                        VStack(alignment: .leading, spacing: 7) {
+                            Text("Tu espacio personal").font(.system(.headline, design: .rounded))
                             Text("Datos guardados en este iPhone").font(.caption).foregroundStyle(.secondary)
-                        }.padding(.vertical, 8)
-                    }
+                        }.padding(.vertical, 12)
+                    }.listRowBackground(Theme.surface)
                     NavigationLink { PersonalSettingsView() } label: { Label("Perfil y unidades", systemImage: "slider.horizontal.3") }
-                }
+                }.listRowBackground(Theme.surface)
                 Section("Seguimiento") {
                     NavigationLink { NutritionView() } label: { Label("Nutrición", systemImage: "fork.knife") }
                     NavigationLink { MeasurementsView() } label: { Label("Medidas corporales", systemImage: "scalemass") }
                     NavigationLink { PhotosView() } label: { Label("Fotos de progreso", systemImage: "photo.on.rectangle") }
                     NavigationLink { ExerciseCatalogView() } label: { Label("Ejercicios", systemImage: "dumbbell") }
                     NavigationLink { PlateCalculatorView() } label: { Label("Discos y calentamiento", systemImage: "circle.grid.cross") }
-                }
+                }.listRowBackground(Theme.surface)
                 Section {
                     Button { exportingBackup() } label: { Label("Guardar copia completa", systemImage: "square.and.arrow.up") }
                     Button { importingCSV = false; importing = true } label: { Label("Restaurar copia", systemImage: "square.and.arrow.down") }
@@ -57,12 +59,13 @@ struct ProfileView: View {
                     Button { exportingWorkouts() } label: { Label("Exportar entrenamientos CSV", systemImage: "tablecells") }
                 } header: { Text("Tus datos") } footer: {
                     Text("Restaura una copia de Gym Tracker para iOS o Android, o importa el CSV de entrenamientos de Hevy. Revisarás el contenido antes de importarlo.")
-                }
+                }.listRowBackground(Theme.surface)
                 Section {
                     LabeledContent("Versión iOS", value: "0.1.0")
                     Text("Entrenamientos, rutinas, nutrición y progreso sin conexión.").foregroundStyle(.secondary)
-                }
+                }.listRowBackground(Theme.surface)
             }
+            .gymScreenStyle()
             .navigationTitle("Perfil")
             .fileImporter(isPresented: $importing, allowedContentTypes: importingCSV ? [.commaSeparatedText, .plainText, .text, .data] : [.json, .data]) { result in
                 readImport(result)
@@ -125,21 +128,7 @@ struct ProfileView: View {
         } catch { review = nil; store.errorMessage = error.localizedDescription }
     }
     private func exportingWorkouts() {
-        func escape(_ value: String) -> String { "\"" + value.replacingOccurrences(of: "\"", with: "\"\"") + "\"" }
-        let iso = ISO8601DateFormatter()
-        var rows = ["title,start_time,end_time,description,exercise_title,exercise_notes,set_index,set_type,weight_kg,reps,rpe,distance_km,duration_seconds,superset_id"]
-        for workout in store.data.sessions.sorted(by: { $0.startedAt < $1.startedAt }) {
-            for block in workout.exercises {
-                for (index, set) in block.sets.enumerated() where set.completed {
-                    let fields = [workout.title, iso.string(from: workout.startedAt), workout.endedAt.map { iso.string(from: $0) } ?? "", workout.notes,
-                                  block.exerciseName.isEmpty ? store.exerciseName(block.exerciseId) : block.exerciseName, block.notes,
-                                  String(index), set.setType, String(set.weightKg), String(set.reps), set.rpe.map { String($0) } ?? "",
-                                  set.distanceKm.map { String($0) } ?? "", set.durationSeconds.map { String($0) } ?? "", block.supersetId ?? ""]
-                    rows.append(fields.map(escape).joined(separator: ","))
-                }
-            }
-        }
-        exportDocument = GymDocument(data: Data(rows.joined(separator: "\r\n").utf8))
+        exportDocument = GymDocument(data: Data(HevyCSV.export(store.data.sessions, catalog: store.data.exercises).utf8))
         exportType = .commaSeparatedText; exportName = "GymTracker-entrenamientos"; exporting = true
     }
 }
@@ -167,7 +156,7 @@ struct PersonalSettingsView: View {
                 LabeledContent("Calorías") { TextField("kcal", value: field(\.calorieGoal), format: .number).keyboardType(.numberPad).multilineTextAlignment(.trailing) }
                 LabeledContent("Proteína (g)") { TextField("Proteína", value: field(\.proteinGoal), format: .number).keyboardType(.numberPad).multilineTextAlignment(.trailing) }
             }
-        }.navigationTitle("Perfil y unidades")
+        }.gymScreenStyle().navigationTitle("Perfil y unidades")
     }
 }
 
@@ -188,6 +177,7 @@ struct PhotosView: View {
             addPhotoSection
             ForEach(sortedPhotos, content: photoRow)
         }
+        .gymScreenStyle()
         .navigationTitle("Fotos de progreso")
         .onChange(of: selected) { handleSelection($0) }
         .confirmationDialog("¿Eliminar esta foto?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
@@ -214,16 +204,16 @@ struct PhotosView: View {
                     .resizable()
                     .scaledToFit()
                     .frame(maxHeight: 360)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
             }
             Text(photo.date.formatted(date: .abbreviated, time: .omitted))
-                .font(.headline)
+                .font(.system(.headline, design: .rounded))
             if !photo.notes.isEmpty {
                 Text(photo.notes).foregroundStyle(.secondary)
             }
             Button("Eliminar foto", role: .destructive) { deleting = photo }
         }
-        .padding(.vertical, 8)
+        .padding(.vertical, 12).listRowBackground(Theme.surface)
     }
 
     private func handleSelection(_ item: PhotosPickerItem?) {
@@ -310,8 +300,7 @@ struct PlateCalculatorView: View {
                     LabeledContent("\(Int(fraction * 100))% · \(fraction == 0.4 ? 8 : fraction == 0.6 ? 5 : 3) repeticiones", value: "\(store.displayWeight(max(barKg, targetKg * fraction)).gymNumber) \(store.weightUnit)")
                 }
             }
-        }.navigationTitle("Discos y calentamiento")
+        }.gymScreenStyle().navigationTitle("Discos y calentamiento")
             .onAppear { target = store.displayWeight(60); bar = store.displayWeight(20) }
     }
 }
-

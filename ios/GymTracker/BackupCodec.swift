@@ -60,7 +60,8 @@ enum BackupCodec {
             let endText = try row.string("ended_at")
             var session = WorkoutSession(id: id, importKey: try row.optionalString("import_key"),
                                          title: try row.string("title"), startedAt: startedAt,
-                                         endedAt: endText.isEmpty ? nil : try validDate(endText), notes: try row.string("notes"))
+                                         endedAt: endText.isEmpty ? nil : try validDate(endText),
+                                         workoutDate: GymDate.dayKey(try row.epochDate()), notes: try row.string("notes"))
             let sessionSets = try sets.filter { try $0.string("session_id") == id }.sorted {
                 let left = ($0["exercise_index"] as? NSNumber)?.intValue ?? 0
                 let right = ($1["exercise_index"] as? NSNumber)?.intValue ?? 0
@@ -85,6 +86,7 @@ enum BackupCodec {
                     reps: try entry.integer("reps"), weightKg: try entry.number("weight_kg"),
                     setType: try entry.string("set_type", default: try entry.integer("warmup", default: 0) != 0 ? "warmup" : "normal"),
                     rpe: try entry.optionalNumber("rpe"), distanceKm: try entry.optionalNumber("distance_km"),
+                    legacyRestSeconds: try entry.optionalInteger("rest_seconds"),
                     durationSeconds: try entry.optionalInteger("duration_seconds"), completed: true))
             }
             return session
@@ -105,6 +107,7 @@ enum BackupCodec {
             guard let bytes = payload.data(using: .utf8), let row = try JSONSerialization.jsonObject(with: bytes) as? [String: Any],
                   let blocks = row["exercises"] as? [[String: Any]] else { throw GymError.invalid("Borrador Android dañado.") }
             result.draft = WorkoutSession(id: try row.string("id"), title: try row.string("title"), startedAt: try validDate(row.string("startedAt")),
+                workoutDate: try row.optionalInteger("dateEpochDay").map { GymDate.dayKey(GymDate.fromEpochDay($0)) },
                 notes: try row.string("notes"), routineId: try row.optionalString("routineId"),
                 exercises: try blocks.map { try androidBlock($0, catalog: result.exercises) })
         }
@@ -145,6 +148,7 @@ enum BackupCodec {
             sets: try sets.map { set in
                 WorkoutSet(id: try set.string("id"), reps: try set.integer("reps"), weightKg: try set.number("weightKg"),
                            setType: try set.string("setType"), rpe: try set.optionalNumber("rpe"), distanceKm: try set.optionalNumber("distanceKm"),
+                           legacyRestSeconds: try set.optionalInteger("legacyRestSeconds"),
                            durationSeconds: try set.optionalInteger("durationSeconds"), completed: (set["completed"] as? Bool) ?? false)
             })
     }

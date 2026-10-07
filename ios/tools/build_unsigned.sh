@@ -32,4 +32,3 @@ print('IPA checked: device binary; not signed. Sign with your own Apple account 
 PY
 shasum -a 256 "$BUILD_DIR/GymTracker-unsigned.ipa" > "$BUILD_DIR/GymTracker-unsigned.ipa.sha256"
 printf 'Output: %s\n' "$BUILD_DIR/GymTracker-unsigned.ipa"
-

@@ -19,13 +19,12 @@ struct TrainingView: View {
                         showWorkout = store.data.draft != nil
                     } label: {
                         Label(store.data.draft == nil ? "Iniciar entrenamiento libre" : "Continuar entrenamiento", systemImage: "play.fill")
-                            .font(.headline).padding(.vertical, 10)
-                    }
+                    }.buttonStyle(GymPrimaryButtonStyle())
                     if let draft = store.data.draft {
-                        Text("\(draft.title) · \(draft.completedSets) series completadas")
+                        Text("\(draft.title) · \(draft.completedSets) series")
                             .font(.caption).foregroundStyle(.secondary)
                     }
-                }
+                }.listRowBackground(Color.clear).listRowSeparator(.hidden)
                 if store.data.routines.isEmpty && store.data.folders.isEmpty {
                     EmptyState(title: "Tus rutinas", message: "Crea una rutina con tus ejercicios y series para repetirla cada semana.", symbol: "list.bullet.clipboard")
                         .listRowBackground(Color.clear)
@@ -53,8 +52,8 @@ struct TrainingView: View {
                     }
                 }
             }
-            .scrollContentBackground(.hidden)
-            .background(Theme.background)
+            .listStyle(.insetGrouped)
+            .gymScreenStyle()
             .navigationTitle("Entrenar")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -108,8 +107,8 @@ struct TrainingView: View {
     private func routineRow(_ routine: Routine) -> some View {
         HStack(spacing: 14) {
             Button { editor = routine } label: {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(routine.name).font(.headline).foregroundStyle(.primary)
+                VStack(alignment: .leading, spacing: 7) {
+                    Text(routine.name).font(.system(.headline, design: .rounded)).foregroundStyle(.primary)
                     Text("\(routine.exercises.count) ejercicios · \(routine.exercises.reduce(0) { $0 + $1.sets.count }) series")
                         .font(.caption).foregroundStyle(.secondary)
                 }.frame(maxWidth: .infinity, alignment: .leading)
@@ -117,7 +116,11 @@ struct TrainingView: View {
             Button {
                 store.startWorkout(routine: routine)
                 showWorkout = store.data.draft != nil
-            } label: { Image(systemName: "play.circle.fill").font(.title) }
+            } label: {
+                Image(systemName: "play.fill").font(.system(size: 14, weight: .bold))
+                    .frame(width: 40, height: 40)
+                    .background(Theme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+            }
             .buttonStyle(.borderless)
             .accessibilityLabel(store.data.draft == nil ? "Iniciar \(routine.name)" : "Continuar entrenamiento activo")
             Menu {
@@ -130,9 +133,9 @@ struct TrainingView: View {
                     store.mutate { $0.routines.append(copy) }
                 } label: { Label("Duplicar", systemImage: "doc.on.doc") }
                 Button("Eliminar", role: .destructive) { deletedRoutine = routine }
-            } label: { Image(systemName: "ellipsis").padding(.vertical, 10) }
+            } label: { Image(systemName: "ellipsis").font(.system(size: 16, weight: .semibold)).frame(width: 28, height: 40) }
             .accessibilityLabel("Opciones de \(routine.name)")
-        }.padding(.vertical, 6)
+        }.padding(.vertical, 10).listRowBackground(Theme.surface)
     }
 
     private func saveFolder() {
@@ -168,7 +171,6 @@ struct ActiveWorkoutView: View {
 private struct ActiveWorkoutContent: View {
     @EnvironmentObject private var store: GymStore
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var timer = RestTimer.shared
     @State private var workout: WorkoutSession
     @State private var showPicker = false
     @State private var replacementID: String?
@@ -193,23 +195,14 @@ private struct ActiveWorkoutContent: View {
                 } header: { Text("Cambios sin guardar") }
             }
             Section {
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    HStack {
-                        Label(elapsedString(context.date.timeIntervalSince(workout.startedAt)), systemImage: "clock")
-                            .monospacedDigit()
-                        Spacer()
-                        Text("\(workout.completedSets) series").foregroundStyle(.secondary)
-                    }.font(.headline)
-                }
+                Text("\(workout.completedSets) series").font(.system(.title3, design: .rounded).weight(.bold)).monospacedDigit()
+                    .accessibilityIdentifier("workout-set-count")
                 if workout.routineId != nil { Text("Entrenamiento de rutina").font(.caption).foregroundStyle(.secondary) }
-                Button("Editar título, inicio y duración") { showDetails = true }
+                Button("Editar título y fecha") { showDetails = true }
                 TextField("Notas del entrenamiento", text: $workout.notes, axis: .vertical).lineLimit(2...5)
-            }
-            if timer.deadline != nil {
-                Section { RestTimerPanel(timer: timer) }
-            }
+            }.listRowBackground(Theme.surface)
             if workout.exercises.isEmpty {
-                EmptyState(title: "Añade tu primer ejercicio", message: "Registra peso, repeticiones y las series que completes.", symbol: "dumbbell")
+                EmptyState(title: "Añade tu primer ejercicio", message: "Registra peso, repeticiones y las series del entrenamiento.", symbol: "dumbbell")
                     .listRowBackground(Color.clear)
             }
             ForEach($workout.exercises) { $exercise in
@@ -223,25 +216,23 @@ private struct ActiveWorkoutContent: View {
                         onReplace: { replacementID = exercise.id; showPicker = true },
                         onRemove: { removeExercise(exercise.id, from: &workout.exercises) },
                         onMove: { direction in moveExercise(exercise.id, direction: direction) },
-                        onSuperset: { toggleSuperset(exercise.id) },
-                        onComplete: { timer.start(seconds: exercise.restSeconds, exercise: store.exerciseName(exercise.exerciseId)) }
+                        onSuperset: { toggleSuperset(exercise.id) }
                     )
-                }
+                }.listRowBackground(Theme.surface)
             }
             Section {
                 Button { replacementID = nil; showPicker = true } label: { Label("Añadir ejercicio", systemImage: "plus") }
                 Button("Descartar entrenamiento", role: .destructive) { showDiscard = true }
             }
         }
-        .scrollContentBackground(.hidden)
-        .background(Theme.background)
+        .gymScreenStyle()
         .navigationTitle(workout.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) { Button("Cerrar") { if saveDraft() { dismiss() } } }
             ToolbarItem(placement: .confirmationAction) {
                 Button("Finalizar") {
-                    if workout.completedSets == 0 { error = "Completa al menos una serie antes de guardar el entrenamiento." }
+                    if workout.completedSets == 0 { error = "Añade al menos una serie antes de guardar el entrenamiento." }
                     else { showFinish = true }
                 }.fontWeight(.semibold)
             }
@@ -250,12 +241,12 @@ private struct ActiveWorkoutContent: View {
             ExercisePicker { selected in selectExercise(selected) }
         }
         .confirmationDialog("Reemplazar ejercicio", isPresented: $showReplacementConfirmation, titleVisibility: .visible) {
-            Button("Reemplazar y marcar series pendientes") {
+            Button("Reemplazar por una serie") {
                 if let selected = replacementChoice { applyReplacement(selected) }
                 replacementChoice = nil
             }
             Button("Cancelar", role: .cancel) { replacementChoice = nil; replacementID = nil }
-        } message: { Text("Las series completadas de este ejercicio pasarán a pendientes para que puedas registrar el ejercicio nuevo.") }
+        } message: { Text("El ejercicio nuevo comenzará con una sola serie. Se sustituirán las series del ejercicio anterior en este entrenamiento.") }
         .sheet(isPresented: $showDetails) { WorkoutDetailsEditor(workout: $workout) }
         .sheet(isPresented: $showFinish) {
             FinishWorkoutSheet(workout: workout) { routineName in try finish(routineName: routineName) }
@@ -265,7 +256,7 @@ private struct ActiveWorkoutContent: View {
             Button("Descartar entrenamiento", role: .destructive) {
                 finishing = true
                 store.mutate { $0.draft = nil }
-                if store.data.draft == nil { timer.cancel(); dismiss() }
+                if store.data.draft == nil { dismiss() }
                 else {
                     finishing = false
                     error = store.errorMessage ?? "No se pudo descartar el entrenamiento."
@@ -294,7 +285,7 @@ private struct ActiveWorkoutContent: View {
     private func selectExercise(_ selected: Exercise) {
         if let replacementID, let index = workout.exercises.firstIndex(where: { $0.id == replacementID }) {
             if workout.exercises[index].exerciseId == selected.id { self.replacementID = nil; return }
-            if workout.exercises[index].sets.contains(where: \.completed) {
+            if !workout.exercises[index].sets.isEmpty {
                 replacementChoice = selected
                 return
             }
@@ -309,7 +300,8 @@ private struct ActiveWorkoutContent: View {
         guard let replacementID, let index = workout.exercises.firstIndex(where: { $0.id == replacementID }) else { return }
         workout.exercises[index].exerciseId = selected.id
         workout.exercises[index].exerciseName = selected.name
-        for set in workout.exercises[index].sets.indices { workout.exercises[index].sets[set].completed = false }
+        workout.exercises[index].restSeconds = 0
+        workout.exercises[index].sets = [WorkoutTemplates.nextSet(from: workout.exercises[index].sets.first)]
         self.replacementID = nil
     }
 
@@ -323,13 +315,11 @@ private struct ActiveWorkoutContent: View {
     private func toggleSuperset(_ id: String) { linkSuperset(id, in: &workout.exercises) }
 
     private func finish(routineName: String?) throws {
-        var completed = workout
-        completed.endedAt = Date()
+        let completed = workout
         finishing = true
         do {
             let routine = routineName.map { Routine(name: $0, notes: workout.notes, exercises: freshExercises(workout.exercises)) }
             try store.finishWorkout(completed, routine: routine)
-            timer.cancel()
             showFinish = false
             dismiss()
         } catch {
@@ -376,8 +366,7 @@ struct RoutineEditor: View {
                             onReplace: { replacementID = exercise.id; showPicker = true },
                             onRemove: { removeExercise(exercise.id, from: &routine.exercises) },
                             onMove: { direction in moveExercise(exercise.id, direction: direction) },
-                            onSuperset: { linkSuperset(exercise.id, in: &routine.exercises) },
-                            onComplete: {}
+                            onSuperset: { linkSuperset(exercise.id, in: &routine.exercises) }
                         )
                     }
                 }
@@ -385,8 +374,7 @@ struct RoutineEditor: View {
                     Button { replacementID = nil; showPicker = true } label: { Label("Añadir ejercicio", systemImage: "plus") }
                 }
             }
-            .scrollContentBackground(.hidden)
-            .background(Theme.background)
+            .gymScreenStyle()
             .navigationTitle("Editar rutina")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -403,6 +391,8 @@ struct RoutineEditor: View {
                     if let replacementID, let index = routine.exercises.firstIndex(where: { $0.id == replacementID }) {
                         routine.exercises[index].exerciseId = selected.id
                         routine.exercises[index].exerciseName = selected.name
+                        routine.exercises[index].restSeconds = 0
+                        routine.exercises[index].sets = [WorkoutTemplates.nextSet(from: routine.exercises[index].sets.first)]
                     } else {
                         routine.exercises.append(WorkoutExercise(exerciseId: selected.id, exerciseName: selected.name))
                     }
@@ -453,41 +443,35 @@ private struct ExerciseTrainingEditor: View {
     let onRemove: () -> Void
     let onMove: (Int) -> Void
     let onSuperset: () -> Void
-    let onComplete: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 16) {
             header
             if let supersetName {
                 Label(supersetName, systemImage: "link").font(.caption).foregroundStyle(Theme.accent)
             }
             TextField("Notas del ejercicio", text: $exercise.notes, axis: .vertical).font(.subheadline).lineLimit(1...4)
-            Stepper(value: $exercise.restSeconds, in: 0...1800, step: 15) {
-                HStack(spacing: 5) {
-                    Image(systemName: "timer")
-                    Text(exercise.restSeconds == 0 ? "Sin descanso automático" : "Descanso: \(elapsedString(Double(exercise.restSeconds)))")
-                }.font(.subheadline).foregroundStyle(.secondary)
-            }
             ForEach($exercise.sets) { $set in
                 let index = exercise.sets.firstIndex(where: { $0.id == set.id }) ?? 0
-                WorkoutSetEditor(set: $set, number: index + 1, previous: store.previousSet(exerciseId: exercise.exerciseId, index: index), active: active, onComplete: onComplete) {
+                WorkoutSetEditor(set: $set, number: index + 1, previous: store.previousSet(exerciseId: exercise.exerciseId, index: index), active: active) {
                     exercise.sets.removeAll { $0.id == set.id }
                 }
             }
             Button {
-                var next = exercise.sets.last ?? WorkoutSet()
-                next.id = UUID().uuidString
-                next.importKey = nil
-                next.completed = false
-                exercise.sets.append(next)
-            } label: { Label("Añadir serie", systemImage: "plus") }.font(.subheadline)
-        }.padding(.vertical, 8)
+                exercise.sets.append(WorkoutTemplates.nextSet(from: exercise.sets.last))
+            } label: {
+                Label("Añadir serie", systemImage: "plus")
+                    .font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity, minHeight: 42)
+                    .background(Theme.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }.buttonStyle(.borderless)
+                .accessibilityIdentifier("add-set-\(exercise.id)")
+        }.padding(.vertical, 12).listRowBackground(Theme.surface)
     }
 
     private var header: some View {
         HStack(alignment: .top) {
             Text("\(position + 1). \(exercise.exerciseName.isEmpty ? store.exerciseName(exercise.exerciseId) : exercise.exerciseName)")
-                .font(.headline).frame(maxWidth: .infinity, alignment: .leading)
+                .font(.system(.headline, design: .rounded)).frame(maxWidth: .infinity, alignment: .leading)
             Menu {
                 Button(action: onReplace) { Label("Reemplazar ejercicio", systemImage: "arrow.triangle.2.circlepath") }
                 Button { onMove(-1) } label: { Label("Subir", systemImage: "arrow.up") }.disabled(position == 0)
@@ -510,13 +494,12 @@ private struct WorkoutSetEditor: View {
     let number: Int
     let previous: WorkoutSet?
     let active: Bool
-    let onComplete: () -> Void
     let onRemove: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("Serie \(number)").font(.subheadline.weight(.semibold))
+                Text("Serie \(number)").font(.system(.subheadline, design: .rounded).weight(.bold)).monospacedDigit()
                 Spacer()
                 Picker("Tipo", selection: $set.setType) {
                     Text("Normal").tag("normal")
@@ -532,54 +515,42 @@ private struct WorkoutSetEditor: View {
             HStack(alignment: .bottom, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(store.weightUnit).font(.caption).foregroundStyle(.secondary)
-                    DecimalField(title: "Peso", value: Binding(get: { store.displayWeight(set.weightKg) }, set: { set.weightKg = max(0, store.kgWeight($0)) }))
-                        .textFieldStyle(.roundedBorder)
+                    ReplaceableNumberField(title: "Peso", value: Binding(get: { store.displayWeight(set.weightKg) }, set: { set.weightKg = max(0, store.kgWeight($0)) }))
+                        .frame(maxWidth: .infinity, minHeight: 36)
+                        .padding(.horizontal, 10).padding(.vertical, 4)
+                        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Reps").font(.caption).foregroundStyle(.secondary)
-                    TextField("Reps", value: Binding(get: { set.reps }, set: { set.reps = max(0, $0) }), format: .number)
-                        .keyboardType(.numberPad).textFieldStyle(.roundedBorder)
+                    ReplaceableNumberField(title: "Reps", value: Binding(get: { Double(set.reps) }, set: { set.reps = max(0, Int($0)) }), integer: true)
+                        .frame(maxWidth: .infinity, minHeight: 36)
+                        .padding(.horizontal, 10).padding(.vertical, 4)
+                        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
                 if active {
-                    Button {
-                        set.completed.toggle()
-                        if set.completed { onComplete() }
-                    } label: {
-                        Image(systemName: set.completed ? "checkmark.circle.fill" : "circle")
-                            .font(.title).foregroundStyle(set.completed ? Color.green : Color.secondary)
-                            .frame(width: 42, height: 36)
-                    }.buttonStyle(.borderless)
-                        .disabled(!set.completed && set.reps == 0 && (set.durationSeconds ?? 0) == 0 && (set.distanceKm ?? 0) == 0)
-                        .accessibilityLabel(set.completed ? "Marcar serie \(number) como pendiente" : "Completar serie \(number)")
+                    FailureSetCheckbox(set: $set, accessibilityLabel: "Al fallo, serie \(number)")
                 }
             }
             if let previous {
                 Text(previousDescription(previous)).font(.caption).foregroundStyle(.secondary)
             }
-            DisclosureGroup("RPE, duración y distancia") {
+            DisclosureGroup("RPE y distancia") {
                 VStack(spacing: 10) {
                     optionalDecimal("RPE (1–10)", value: $set.rpe, range: 1...10)
-                    HStack {
-                        Text("Duración (seg.)").font(.subheadline)
-                        Spacer()
-                        TextField("—", text: Binding(get: { set.durationSeconds.map(String.init) ?? "" }, set: { value in
-                            let cleaned = value.trimmingCharacters(in: .whitespacesAndNewlines)
-                            if cleaned.isEmpty { set.durationSeconds = nil }
-                            else if let parsed = Int(cleaned) { set.durationSeconds = max(0, parsed) }
-                        })).keyboardType(.numberPad).multilineTextAlignment(.trailing).frame(width: 90)
-                    }
                     optionalDecimal("Distancia (km)", value: $set.distanceKm, range: 0...10000)
                 }.padding(.top, 8)
             }.font(.caption)
         }
-        .padding(12)
-        .background(set.completed && active ? Color.green.opacity(0.09) : Theme.background.opacity(0.65))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .onChange(of: set) { value in
-            if value.completed && value.reps == 0 && (value.durationSeconds ?? 0) == 0 && (value.distanceKm ?? 0) == 0 {
-                set.completed = false
-            }
+        .padding(14)
+        .background(Theme.background.opacity(0.65))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.055), lineWidth: 1)
+                .allowsHitTesting(false)
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("workout-set-\(set.id)")
     }
 
     private func optionalDecimal(_ title: String, value: Binding<Double?>, range: ClosedRange<Double>) -> some View {
@@ -594,9 +565,34 @@ private struct WorkoutSetEditor: View {
     private func previousDescription(_ previous: WorkoutSet) -> String {
         var text = "Anterior: \(store.displayWeight(previous.weightKg).gymNumber) \(store.weightUnit) × \(previous.reps)"
         if let rpe = previous.rpe { text += " · RPE \(rpe.gymNumber)" }
-        if let seconds = previous.durationSeconds { text += " · \(elapsedString(Double(seconds)))" }
         if let distance = previous.distanceKm { text += " · \(distance.gymNumber) km" }
         return text
+    }
+}
+
+struct FailureSetCheckbox: View {
+    @Binding var set: WorkoutSet
+    var accessibilityLabel = "Al fallo"
+
+    private var reachedFailure: Bool { self.set.setType == "failure" }
+
+    var body: some View {
+        Button {
+            set.setType = reachedFailure ? "normal" : "failure"
+        } label: {
+            VStack(spacing: 3) {
+                Image(systemName: reachedFailure ? "checkmark.square.fill" : "square")
+                    .font(.title2)
+                Text("Al fallo").font(.caption2)
+            }
+            .foregroundStyle(reachedFailure ? Theme.accent : Color.secondary)
+            .frame(minWidth: 48, minHeight: 44)
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityValue(reachedFailure ? "Marcada" : "Sin marcar")
+        .accessibilityHint("Opcional; esta serie se guardará con o sin esta marca.")
+        .accessibilityIdentifier("failure-\(set.id)")
     }
 }
 
@@ -637,17 +633,10 @@ private struct WorkoutDetailsEditor: View {
             Form {
                 Section("Entrenamiento") {
                     TextField("Título", text: $workout.title)
-                    DatePicker("Inicio", selection: $workout.startedAt, in: ...Date(), displayedComponents: [.date, .hourAndMinute])
+                    DatePicker("Fecha", selection: $workout.date, in: ...Date(), displayedComponents: .date)
                 }
-                Section {
-                    Stepper(value: Binding(get: { max(0, Int(Date().timeIntervalSince(workout.startedAt) / 60)) }, set: { minutes in
-                        workout.startedAt = Date().addingTimeInterval(-Double(minutes) * 60)
-                        workout.endedAt = nil
-                    }), in: 0...10080, step: 1) {
-                        Text("Duración: \(max(0, Int(Date().timeIntervalSince(workout.startedAt) / 60))) min")
-                    }
-                } footer: { Text("Al ajustar la duración se recalcula la hora de inicio. El reloj sigue contando hasta finalizar.") }
             }
+            .gymScreenStyle()
             .navigationTitle("Datos del entrenamiento")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Listo") { dismiss() } } }
@@ -667,8 +656,8 @@ private struct FinishWorkoutSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    Text("\(workout.completedSets) series completadas").font(.headline)
-                    Text("El historial incluirá las series que has marcado como completadas.").font(.subheadline).foregroundStyle(.secondary)
+                    Text("\(workout.completedSets) series").font(.headline)
+                    Text("El historial incluirá todos los ejercicios y series. La marca «Al fallo» es opcional.").font(.subheadline).foregroundStyle(.secondary)
                 }
                 Section {
                     Toggle("Guardar también como rutina", isOn: $saveRoutine)
@@ -677,6 +666,7 @@ private struct FinishWorkoutSheet: View {
                     if saveRoutine { Text("La rutina conservará todos los ejercicios y series planificados.") }
                 }
             }
+            .gymScreenStyle()
             .navigationTitle("Finalizar entrenamiento")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -697,62 +687,8 @@ private struct FinishWorkoutSheet: View {
     }
 }
 
-private struct RestTimerPanel: View {
-    @ObservedObject var timer: RestTimer
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                let remaining = timer.remaining(at: context.date)
-                HStack {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Label(remaining == 0 ? "Descanso completado" : "Descanso", systemImage: "timer")
-                            .font(.headline)
-                        Text(timer.exerciseName).font(.caption).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Text(elapsedString(Double(remaining))).font(.title2.bold()).monospacedDigit().foregroundStyle(Theme.accent)
-                }
-                HStack {
-                    Button("−15 s") { timer.adjust(seconds: -15) }.disabled(remaining == 0)
-                    Spacer()
-                    Button("+15 s") {
-                        if remaining == 0 { timer.start(seconds: 15, exercise: timer.exerciseName) }
-                        else { timer.adjust(seconds: 15) }
-                    }
-                    Spacer()
-                    Button(remaining == 0 ? "Listo" : "Omitir") { timer.cancel() }
-                }.buttonStyle(.borderless).font(.subheadline)
-            }
-            if let warning = timer.notificationWarning { Text(warning).font(.caption).foregroundStyle(.secondary) }
-        }.padding(.vertical, 5)
-    }
-}
-
-private func elapsedString(_ seconds: TimeInterval) -> String {
-    let total = max(0, Int(seconds))
-    if total >= 3600 { return String(format: "%d:%02d:%02d", total / 3600, total / 60 % 60, total % 60) }
-    return String(format: "%d:%02d", total / 60, total % 60)
-}
-
 private func freshExercises(_ exercises: [WorkoutExercise]) -> [WorkoutExercise] {
-    var supersetIDs: [String: String] = [:]
-    return exercises.map { source in
-        var exercise = source
-        exercise.id = UUID().uuidString
-        if let old = exercise.supersetId {
-            if supersetIDs[old] == nil { supersetIDs[old] = UUID().uuidString }
-            exercise.supersetId = supersetIDs[old]
-        }
-        exercise.sets = source.sets.map { sourceSet in
-            var set = sourceSet
-            set.id = UUID().uuidString
-            set.importKey = nil
-            set.completed = false
-            return set
-        }
-        return exercise
-    }
+    WorkoutTemplates.exercises(from: exercises)
 }
 
 private func linkSuperset(_ id: String, in exercises: inout [WorkoutExercise]) {

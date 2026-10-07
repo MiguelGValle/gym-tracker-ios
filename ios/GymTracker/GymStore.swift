@@ -59,31 +59,28 @@ final class GymStore: ObservableObject {
 
     func startWorkout(routine: Routine? = nil) {
         guard data.draft == nil else { return }
-        var workout = WorkoutSession(title: routine?.name ?? "Entrenamiento", routineId: routine?.id)
-        workout.exercises = (routine?.exercises ?? []).map { source in
-            var block = source
-            block.id = UUID().uuidString
-            block.sets = source.sets.map { original in
-                var set = original
-                set.id = UUID().uuidString
-                set.importKey = nil
-                set.completed = false
-                return set
-            }
-            return block
-        }
+        var workout = WorkoutSession(title: routine?.name ?? "Entrenamiento", workoutDate: GymDate.dayKey(Date()), routineId: routine?.id)
+        workout.exercises = WorkoutTemplates.exercises(from: routine?.exercises ?? [], singleSet: true)
+        mutate { $0.draft = workout }
+    }
+
+    func repeatWorkout(_ original: WorkoutSession) {
+        guard data.draft == nil else { return }
+        var workout = WorkoutSession(title: original.title, workoutDate: GymDate.dayKey(Date()), notes: original.notes, routineId: original.routineId)
+        workout.exercises = WorkoutTemplates.exercises(from: original.exercises, singleSet: true)
         mutate { $0.draft = workout }
     }
 
     func finishWorkout(_ workout: WorkoutSession, routine: Routine? = nil) throws {
         var finished = workout
-        finished.endedAt = finished.endedAt ?? Date()
-        finished.exercises = finished.exercises.compactMap { original in
+        finished.exercises = finished.exercises.map { original in
             var block = original
-            block.sets.removeAll { !$0.completed }
-            return block.sets.isEmpty ? nil : block
+            // Older versions require this compatibility flag when reading saved sessions.
+            // Every present series is saved, independently of its old completion flag.
+            for index in block.sets.indices { block.sets[index].completed = true }
+            return block
         }
-        guard finished.completedSets > 0 else { throw GymError.invalid("Completa al menos una serie antes de terminar.") }
+        guard finished.completedSets > 0 else { throw GymError.invalid("Añade al menos una serie antes de guardar.") }
         var candidate = data
         if let index = candidate.sessions.firstIndex(where: { $0.id == finished.id }) { candidate.sessions[index] = finished }
         else { candidate.sessions.append(finished) }
@@ -97,9 +94,9 @@ final class GymStore: ObservableObject {
 
     func previousSet(exerciseId: String, index: Int) -> WorkoutSet? {
         guard index >= 0 else { return nil }
-        for session in data.sessions.sorted(by: { $0.startedAt > $1.startedAt }) {
+        for session in WorkoutHistory.recentFirst(data.sessions) {
             for block in session.exercises where block.exerciseId == exerciseId {
-                let sets = block.sets.filter(\.completed)
+                let sets = block.sets
                 if sets.indices.contains(index) { return sets[index] }
             }
         }
@@ -161,10 +158,18 @@ final class GymStore: ObservableObject {
             if existing.id == session.id && !preserveImportedSets { result[index] = session; continue }
             // Separate Android installations assign random UUIDs to the same imported Hevy rows.
             session.id = existing.id
+            session.importKey = existing.importKey ?? session.importKey
+            session.workoutDate = session.workoutDate ?? existing.workoutDate
             var blocks = existing.exercises
-            var seen = Set(existing.exercises.flatMap(\.sets).map { $0.importKey ?? $0.id })
+            var seenIDs = Set(existing.exercises.flatMap(\.sets).map(\.id))
+            var seenKeys = Set(existing.exercises.flatMap(\.sets).compactMap(\.importKey))
             for var block in session.exercises {
-                block.sets = block.sets.filter { seen.insert($0.importKey ?? $0.id).inserted }
+                block.sets = block.sets.filter { set in
+                    guard !seenIDs.contains(set.id), set.importKey.map({ !seenKeys.contains($0) }) ?? true else { return false }
+                    seenIDs.insert(set.id)
+                    if let key = set.importKey { seenKeys.insert(key) }
+                    return true
+                }
                 if !block.sets.isEmpty {
                     if let blockIndex = blocks.firstIndex(where: { $0.id == block.id && $0.exerciseId == block.exerciseId }) { blocks[blockIndex].sets.append(contentsOf: block.sets) }
                     else {
@@ -205,6 +210,9 @@ enum GymValidation {
         }
         for session in data.sessions + (data.draft.map { [$0] } ?? []) {
             try date(session.startedAt)
+            if let workoutDate = session.workoutDate, GymDate.localDate(fromCivilDay: workoutDate) == nil {
+                throw GymError.invalid("Fecha de entrenamiento inválida.")
+            }
             if let end = session.endedAt {
                 try date(end)
                 guard end >= session.startedAt else { throw GymError.invalid("El fin no puede ser anterior al inicio.") }
@@ -239,8 +247,8 @@ enum GymValidation {
                       ["normal", "warmup", "failure", "dropset"].contains(set.setType),
                       set.rpe.map({ $0.isFinite && (0...10).contains($0) }) ?? true,
                       set.distanceKm.map({ $0.isFinite && (0...1_000_000).contains($0) }) ?? true,
+                      set.legacyRestSeconds.map({ (0...86400).contains($0) }) ?? true,
                       set.durationSeconds.map({ (0...31_536_000).contains($0) }) ?? true else { throw GymError.invalid("Repeticiones, carga, RPE, distancia o duración inválidas.") }
-                if set.completed && set.reps == 0 && (set.distanceKm ?? 0) == 0 && (set.durationSeconds ?? 0) == 0 { throw GymError.invalid("Una serie completada necesita repeticiones, distancia o duración.") }
             }
         }
     }
